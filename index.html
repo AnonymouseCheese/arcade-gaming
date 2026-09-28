@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0d16">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Coin Pusher</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+
+<div id="boot">
+  <div class="spin"></div>
+  <p>Loading the machine</p>
+</div>
+
+<header id="topbar">
+  <div class="stat"><span class="k">Bank</span><span class="v" id="vBank">0</span></div>
+  <div class="stat"><span class="k">Won</span><span class="v" id="vWon">0</span></div>
+  <div class="stat dim"><span class="k">Lost</span><span class="v" id="vLost">0</span></div>
+  <button id="btnBench" aria-label="Performance panel">FPS <b id="vFps">--</b></button>
+</header>
+
+<div id="hint">Press and slide to aim &middot; lift to drop</div>
+
+<section id="bench" hidden>
+  <h2>Performance <button id="benchClose" aria-label="Close">&times;</button></h2>
+
+  <label class="row">
+    <span>Coins on field <b id="vCoins">450</b></span>
+    <input type="range" id="sCoins" min="100" max="600" step="50" value="450">
+  </label>
+
+  <label class="row">
+    <span>Physics rate</span>
+    <select id="sHz">
+      <option value="30" selected>30 Hz (cheap)</option>
+      <option value="60">60 Hz (accurate)</option>
+    </select>
+  </label>
+
+  <label class="row">
+    <span>Coin collider</span>
+    <select id="sShape">
+      <option value="box" selected>Box (about 2x cheaper)</option>
+      <option value="cylinder">Cylinder (a true disc)</option>
+    </select>
+  </label>
+
+  <label class="row">
+    <span>Solver iterations</span>
+    <select id="sIter">
+      <option value="2">2 (fastest)</option>
+      <option value="4" selected>4 (default)</option>
+      <option value="8">8 (stiffest)</option>
+    </select>
+  </label>
+
+  <div class="readout">
+    <div><span>Frame rate</span><b id="rFps">--</b></div>
+    <div><span>Physics time</span><b id="rStep">--</b></div>
+    <div><span>Coins awake</span><b id="rAwake">--</b></div>
+    <div><span>Draw calls</span><b id="rCalls">--</b></div>
+  </div>
+
+  <p class="note">Slide the coin count up until the frame rate stops holding.
+  That number is this phone&rsquo;s budget.</p>
+
+  <button id="btnReseed">Refill the machine</button>
+</section>
+
+<script type="module" src="app.js?v=1"></script>
+</body>
+</html>
