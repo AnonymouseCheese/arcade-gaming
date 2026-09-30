@@ -8,8 +8,8 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js';
-import * as P from '../physics.js';
+import { CFG } from '../config.js?v=2';
+import * as P from '../physics.js?v=2';
 
 await RAPIER.init();
 
@@ -79,19 +79,27 @@ ok('an idle machine keeps most of its pile', m.active.length > 250,
 
 /* ---------------- 5. does it actually pay out? ---------------- */
 
-const field0 = m.active.length, won0 = m.won, lost0 = m.lost;
+// Coins that have been paid are still on the active list while they sit in
+// the tray, so 'on the field' means active minus whatever is in the tray.
+const inTray = () => m.active.reduce((n, c) => n + (c.paidAt ? 1 : 0), 0);
+const field0 = m.active.length - inTray(), won0 = m.won, lost0 = m.lost;
+let sawTray = 0;
 let dropped = 0;
 for (let i = 0; i < 60 * 90; i++) {
   if (i % 72 === 0 && m.drop((Math.random() * 2 - 1) * CFG.aimLimit)) dropped++;
   m.step();
+  sawTray = Math.max(sawTray, inTray());
 }
 const won = m.won - won0, lost = m.lost - lost0;
 
 ok('coins fall off the front and pay out', won > 0, `${won} won`);
 ok('coins are also lost down the gutters', lost > 0, `${lost} lost`);
+const field1 = m.active.length - inTray();
+ok('winnings land in the payout tray', sawTray > 0, `${sawTray} coins in it at once`);
+ok('the tray empties itself', inTray() < 60, `${inTray()} sitting in it now`);
 ok('every coin is accounted for',
-   m.active.length === field0 + dropped - won - lost,
-   `${m.active.length} on field = ${field0} + ${dropped} - ${won} - ${lost}`);
+   field1 === field0 + dropped - won - lost,
+   `${field1} on field = ${field0} + ${dropped} - ${won} - ${lost}`);
 
 console.log(`\n      dropped ${dropped}, won ${won}, lost ${lost}` +
             `  ->  ${(won / dropped * 100).toFixed(0)}% of coins dropped came back`);

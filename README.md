@@ -6,14 +6,21 @@ Live: https://anonymousecheese.github.io/arcade-gaming/
 
 ## Coin pusher
 
-A two-deck coin pusher with real rigid-body physics and several hundred
-simulated coins. Press and slide to aim, lift to drop.
+A two-deck coin pusher with real rigid-body physics, several hundred
+simulated coins, a payout tray, and sound synthesised from scratch. No build
+step and no CDN — three.js and Rapier are committed under `vendor/`.
 
-The FPS button opens a performance panel: coin count, physics rate and
-collider shape, with live timings. See [PLAN.md](PLAN.md) for what has been
-measured and what comes next.
+Press and slide to aim, lift to drop. `Sound` toggles audio; `FPS` opens a
+panel with coin count, physics rate and collider shape, plus live timings.
+
+See [PLAN.md](PLAN.md) for what has been measured and what comes next.
 
 ```
-node test/physics.test.mjs    # 11 checks, no browser needed
-node test/bench.mjs           # deterministic shape and rate comparison
+node test/physics.test.mjs    # 14 checks, no browser needed
+node test/bench.mjs           # collider shape and physics rate, deterministic
+node test/overlap.mjs         # is the box collider visible?
 ```
+
+**Cache rule:** every intra-app import carries `?v=N`, and `index.html`
+references `app.js?v=N` / `style.css?v=N`. Bump them all together, or the
+browser will load two separate copies of `config.js`.

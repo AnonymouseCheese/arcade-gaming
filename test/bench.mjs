@@ -9,8 +9,8 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js';
-import * as P from '../physics.js';
+import { CFG } from '../config.js?v=2';
+import * as P from '../physics.js?v=2';
 await RAPIER.init();
 
 // seeded PRNG, so every configuration starts from an identical pile

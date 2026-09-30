@@ -40,7 +40,16 @@ export const CFG = {
   dropZ:      -7,      // over the exposed part of the upper deck
   aimLimit:   13,
 
-  killY:      -6,      // below this, a coin has left play
+  /* ---- the payout tray ----
+   * Coins over the lip land in a real tray with real walls and sit there a
+   * moment before being cleared. Watching your winnings clatter in is the
+   * whole payoff, and it costs almost nothing: the tray never holds many. */
+  trayY:      -5,      // tray floor, top surface
+  trayFrontZ:  25,     // inside face of the tray's front wall
+  trayHold:    2.2,    // seconds a coin rests there before it is swept away
+  payLine:    -1.6,    // drop past this, ahead of the lip, and it is a win
+
+  killY:      -9,      // below this a coin has left play entirely
 
   maxCoins:  800,
 };
@@ -51,4 +60,5 @@ export const COLOUR = {
   wall:   0x222a3d,
   trim:   0x171d2c,
   pusher: 0x4a5878,
+  tray:   0x11161f,
 };
