@@ -10,6 +10,11 @@ A two-deck coin pusher with real rigid-body physics, several hundred
 simulated coins, a payout tray, and sound synthesised from scratch. No build
 step and no CDN — three.js and Rapier are committed under `vendor/`.
 
+The machine loads `pile.json`, a pile settled offline so it starts at rest
+rather than collapsing into shape while you watch. Regenerate it with
+`node test/make-pile.mjs` after changing anything that affects how coins sit:
+gravity, friction, collider shape, or the cabinet geometry.
+
 Press and slide to aim, lift to drop. `Sound` toggles audio; `FPS` opens a
 panel with coin count, physics rate and collider shape, plus live timings.
 
