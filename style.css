@@ -56,14 +56,17 @@ html, body {
 #vWon  { color: var(--green); }
 .stat.dim .v { color: var(--red); font-size: 16px; opacity: .8; }
 
+.spacer { margin-left: auto; }
+
+#btnMute,
 #btnBench {
-  margin-left: auto;
   background: rgba(20,26,42,.82); color: var(--dim);
   border: 1px solid var(--line); border-radius: 9px;
   padding: 7px 10px; font: inherit; font-size: 11px;
   letter-spacing: .06em; text-transform: uppercase;
 }
 #btnBench b { color: var(--text); font-variant-numeric: tabular-nums; }
+#btnMute.off { color: #5a6580; border-color: #1d2537; }
 
 /* ---------- hint ---------- */
 #hint {

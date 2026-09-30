@@ -1,4 +1,4 @@
-import { CFG } from './config.js';
+import { CFG } from './config.js?v=2';   // keep the ?v in step with app.js
 
 /* ------------------------------------------------------------------ *
  *  The machine, as physics only. No renderer, no DOM - so this file
@@ -33,6 +33,15 @@ export function cabinetBoxes() {
     out.push({ kind: 'wall', c: [s * (C.wallHalfW + 1), 4, sideCz], h: [1, 7.5, sideD] });
   }
   out.push({ kind: 'trim', c: [0, 5, C.backZ - 1], h: [C.wallHalfW + 2, 10, 1] });
+
+  // The payout tray, with real walls, sitting below and ahead of the lip.
+  const trayD = (C.trayFrontZ - (C.lipZ - 1)) / 2;
+  const trayCz = (C.lipZ - 1) + trayD;
+  out.push({ kind: 'tray', c: [0, C.trayY - 1, trayCz], h: [C.floorHalfW + 2, 1, trayD] });
+  out.push({ kind: 'tray', c: [0, C.trayY + 2, C.trayFrontZ + 1], h: [C.floorHalfW + 2, 2, 1] });
+  for (const s of [-1, 1]) {
+    out.push({ kind: 'tray', c: [s * (C.floorHalfW + 3), C.trayY + 2, trayCz], h: [1, 2, trayD] });
+  }
 
   return out;
 }
@@ -176,7 +185,7 @@ export function createMachine(RAPIER, opts = {}) {
     const body = world.createRigidBody(desc);
     world.createCollider(coinCollider(RAPIER, shape), body);
     body.setEnabled(false);
-    coins.push({ body, slot: i, live: false });
+    coins.push({ body, slot: i, live: false, paidAt: 0 });
   }
 
   const active = [];
@@ -202,6 +211,7 @@ export function createMachine(RAPIER, opts = {}) {
       b.setAngvel({ x: 0, y: 0, z: 0 }, false);
       b.wakeUp();
       coin.live = true;
+      coin.paidAt = 0;
       active.push(coin);
       return coin;
     },
@@ -210,6 +220,7 @@ export function createMachine(RAPIER, opts = {}) {
       coin.body.setEnabled(false);
       coin.body.setTranslation({ x: 0, y: -500, z: 0 }, false);
       coin.live = false;
+      coin.paidAt = 0;
       const i = active.indexOf(coin);
       if (i !== -1) active.splice(i, 1);
     },
@@ -247,15 +258,25 @@ export function createMachine(RAPIER, opts = {}) {
       m.awake = 0;
       for (let i = active.length - 1; i >= 0; i--) {
         const coin = active[i];
-        if (coin.body.isSleeping()) continue;
+        // Coins resting in the tray still need their clock read, so they are
+        // not skipped even once they fall asleep down there.
+        if (coin.body.isSleeping() && !coin.paidAt) continue;
         m.awake++;
         const p = coin.body.translation();
         if (onMoved) onMoved(coin, p, coin.body.rotation());
-        if (p.y < CFG.killY) {
-          const paid = p.z > CFG.lipZ;
-          if (paid) m.won++; else m.lost++;
+
+        if (!coin.paidAt && p.z > CFG.lipZ && p.y < CFG.payLine) {
+          m.won++;
+          coin.paidAt = m.elapsed;                 // it is yours the moment it
+          if (onCollected) onCollected(coin, true); // clears the lip
+        }
+
+        if (coin.paidAt) {
+          if (m.elapsed - coin.paidAt > CFG.trayHold) m.park(coin);
+        } else if (p.y < CFG.killY) {
+          m.lost++;
           m.park(coin);
-          if (onCollected) onCollected(coin, paid);
+          if (onCollected) onCollected(coin, false);
         }
       }
     },
