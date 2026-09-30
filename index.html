@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Coin Pusher</title>
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -48,8 +48,8 @@
   <label class="row">
     <span>Coin collider</span>
     <select id="sShape">
-      <option value="box" selected>Box (about 2x cheaper)</option>
-      <option value="cylinder">Cylinder (a true disc)</option>
+      <option value="cylinder" selected>Cylinder (a true disc)</option>
+      <option value="box">Box (2x cheaper, slight overlap)</option>
     </select>
   </label>
 
@@ -75,6 +75,6 @@
   <button id="btnReseed">Refill the machine</button>
 </section>
 
-<script type="module" src="app.js?v=2"></script>
+<script type="module" src="app.js?v=3"></script>
 </body>
 </html>
