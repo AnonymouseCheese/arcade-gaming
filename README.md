@@ -16,7 +16,10 @@ panel with coin count, physics rate and collider shape, plus live timings.
 See [PLAN.md](PLAN.md) for what has been measured and what comes next.
 
 ```
-node test/physics.test.mjs    # 14 checks, no browser needed
+node test/physics.test.mjs    # 18 checks, no browser needed
+node test/make-pile.mjs      # regenerate the settled pile (~2 min)
+node test/chute.mjs          # does the drop board jam?
+node test/feel.mjs           # why does it shed coins when idle?
 node test/bench.mjs           # collider shape and physics rate, deterministic
 node test/overlap.mjs         # is the box collider visible?
 ```
