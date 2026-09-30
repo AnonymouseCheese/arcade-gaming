@@ -1,17 +1,19 @@
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG, COLOUR } from './config.js?v=2';
-import { cabinetBoxes, pusherSlabs, createMachine } from './physics.js?v=2';
-import { createAudio } from './audio.js?v=2';
+import { CFG, COLOUR } from './config.js?v=3';
+import {
+  cabinetBoxes, pusherSlabs, dropperBoxes, dropperPegs, createMachine,
+} from './physics.js?v=3';
+import { createAudio } from './audio.js?v=3';
 
 /* ------------------------------------------------------------------ *
- *  Coin pusher - v1
+ *  Coin pusher
  *
  *  The machine itself lives in physics.js. This file is the renderer,
- *  the input handling, the sound cues and the benchmark panel.
+ *  the input handling, the sound cues and the performance panel.
  * ------------------------------------------------------------------ */
 
-let renderer, scene, camera, machine;
+let renderer, scene, camera, machine, pile = null;
 let coinMesh, chuteMesh, pusherGroup;
 
 let prevX, prevQ, curX, curQ;   // interpolation buffers, indexed by pool slot
@@ -41,12 +43,26 @@ init().catch(err => {
 async function init() {
   await RAPIER.init();
 
+  // A pile that was settled offline. Without it the machine has to collapse
+  // into shape on the player's time, shedding coins for two minutes while it
+  // does - which reads as the machine leaking for no reason.
+  try {
+    const res = await fetch('pile.json?v=3');
+    if (res.ok) pile = await res.json();
+  } catch { /* fall back to the grid seed below */ }
+
   cacheUi();
   buildRenderer();
   buildScene();
   buildEnvironment();
   buildCabinetMeshes();
   buildCoinMesh();
+
+  if (pile) {
+    ui.sCoins.max = pile.count;
+    ui.sCoins.value = pile.count;
+    ui.vCoins.textContent = pile.count;
+  }
 
   rebuildMachine();
 
@@ -84,24 +100,28 @@ function buildRenderer() {
 
 function buildScene() {
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x070a12, 110, 230);
+  scene.fog = new THREE.Fog(0x070a12, 130, 260);
 
-  camera = new THREE.PerspectiveCamera(50, 1, 1, 400);
+  camera = new THREE.PerspectiveCamera(50, 1, 1, 500);
 
   scene.add(new THREE.HemisphereLight(0xaecbff, 0x10141f, 0.55));
 
   const key = new THREE.DirectionalLight(0xfff2d6, 1.0);
-  key.position.set(14, 46, 26);
+  key.position.set(14, 52, 30);
   scene.add(key);
 
   const rim = new THREE.DirectionalLight(0x6fa8ff, 0.45);
-  rim.position.set(-22, 18, -28);
+  rim.position.set(-24, 22, -30);
   scene.add(rim);
 
-  // a warm glow spilling out of the marquee onto the playfield
-  const marqueeLight = new THREE.PointLight(0xffc978, 0.9, 90, 2);
-  marqueeLight.position.set(0, 20, -18);
+  const marqueeLight = new THREE.PointLight(0xffc978, 0.9, 110, 2);
+  marqueeLight.position.set(0, 24, -16);
   scene.add(marqueeLight);
+
+  // a cool glow behind the drop board, so the coin reads against it
+  const boardLight = new THREE.PointLight(0x9fd0ff, 0.7, 70, 2);
+  boardLight.position.set(0, CFG.antlerY, CFG.chuteZ + 9);
+  scene.add(boardLight);
 }
 
 /**
@@ -112,25 +132,22 @@ function buildScene() {
  */
 function buildEnvironment() {
   const env = new THREE.Scene();
-
   const lit = (colour, x, y, z, w, h, d) => {
     const m = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
       new THREE.MeshBasicMaterial({ color: colour }));
     m.position.set(x, y, z);
     env.add(m);
-    return m;
   };
 
-  const room = new THREE.Mesh(
-    new THREE.BoxGeometry(120, 90, 120),
-    new THREE.MeshBasicMaterial({ color: 0x161d2e, side: THREE.BackSide }));
-  env.add(room);
+  env.add(new THREE.Mesh(
+    new THREE.BoxGeometry(140, 110, 140),
+    new THREE.MeshBasicMaterial({ color: 0x161d2e, side: THREE.BackSide })));
 
-  lit(0xfff0d2, 0,  40,  -8, 60, 2, 44);   // warm ceiling strip
-  lit(0x9ec4ff, 0,   6,  54, 70, 40, 2);   // cool fill from the front
-  lit(0xffffff, -48, 16, -6, 2, 26, 30);   // left highlight
-  lit(0xffd9a0, 48, 12,  -6, 2, 20, 30);   // right highlight, warmer
+  lit(0xfff0d2, 0,  50,  -8, 70, 2, 50);    // warm ceiling strip
+  lit(0x9ec4ff, 0,   8,  62, 80, 46, 2);    // cool fill from the front
+  lit(0xffffff, -56, 20, -6, 2, 30, 34);    // left highlight
+  lit(0xffd9a0, 56, 14,  -6, 2, 24, 34);    // right highlight, warmer
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(env, 0.05).texture;
@@ -147,8 +164,20 @@ function material(kind) {
     trim:   { color: COLOUR.trim,   metalness: 0.30, roughness: 0.70 },
     tray:   { color: COLOUR.tray,   metalness: 0.55, roughness: 0.45 },
     pusher: { color: COLOUR.pusher, metalness: 0.70, roughness: 0.34 },
-  }[kind] ?? { color: COLOUR.wall, metalness: 0.2, roughness: 0.8 };
-  MATS[kind] = new THREE.MeshStandardMaterial(spec);
+    chute:  { color: COLOUR.chute,  metalness: 0.45, roughness: 0.55 },
+    antler: { color: COLOUR.antler, metalness: 0.80, roughness: 0.30 },
+    peg:    { color: COLOUR.peg,    metalness: 0.90, roughness: 0.22 },
+  }[kind];
+
+  if (kind === 'glass') {
+    MATS[kind] = new THREE.MeshStandardMaterial({
+      color: 0xbcd6ff, metalness: 0, roughness: 0.06,
+      transparent: true, opacity: 0.13, depthWrite: false,
+    });
+  } else {
+    MATS[kind] = new THREE.MeshStandardMaterial(
+      spec ?? { color: COLOUR.wall, metalness: 0.2, roughness: 0.8 });
+  }
   return MATS[kind];
 }
 
@@ -156,12 +185,33 @@ function box(b, kind) {
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(b.h[0] * 2, b.h[1] * 2, b.h[2] * 2), material(kind));
   mesh.position.set(b.c[0], b.c[1], b.c[2]);
+  if (b.rz) mesh.rotation.z = b.rz;
   return mesh;
 }
 
 /** The same boxes physics.js turned into colliders, now as things to look at. */
 function buildCabinetMeshes() {
   for (const b of cabinetBoxes()) scene.add(box(b, b.kind));
+
+  for (const b of dropperBoxes()) {
+    const m = box(b, b.kind);
+    if (b.kind === 'glass') m.renderOrder = 2;      // draw after the coins
+    scene.add(m);
+  }
+
+  // The pins. One instanced mesh, laid along z so they stick out of the board.
+  const pegs = dropperPegs();
+  const pegGeo = new THREE.CylinderGeometry(CFG.pegR, CFG.pegR, CFG.chuteGap * 1.5, 10);
+  pegGeo.rotateX(Math.PI / 2);
+  const pegMesh = new THREE.InstancedMesh(pegGeo, material('peg'), pegs.length);
+  pegs.forEach((g, i) => {
+    dummy.position.set(g.c[0], g.c[1], g.c[2]);
+    dummy.quaternion.set(0, 0, 0, 1);
+    dummy.updateMatrix();
+    pegMesh.setMatrixAt(i, dummy.matrix);
+  });
+  pegMesh.instanceMatrix.needsUpdate = true;
+  scene.add(pegMesh);
 
   pusherGroup = new THREE.Group();
   for (const s of pusherSlabs()) pusherGroup.add(box(s, 'pusher'));
@@ -173,62 +223,112 @@ function buildCabinetMeshes() {
     new THREE.ConeGeometry(0.9, 2.0, 12),
     new THREE.MeshStandardMaterial({
       color: COLOUR.coin, metalness: 0.9, roughness: 0.25,
-      emissive: 0x6a4d10, emissiveIntensity: 0.6,
+      emissive: 0x6a4d10, emissiveIntensity: 0.7,
     }));
   chuteMesh.rotation.x = Math.PI;                 // point it downward
-  chuteMesh.position.set(0, CFG.dropY + 2.6, CFG.dropZ);
+  chuteMesh.position.set(0, CFG.chuteTopY + 2.4, CFG.chuteZ);
   scene.add(chuteMesh);
 }
 
-/** The furniture around the playfield: pillars, marquee, floor. */
+/** The furniture around the playfield: pillars, hood, marquee, floor. */
 function buildCabinetShell() {
   const C = CFG;
   const body = new THREE.MeshStandardMaterial({
     color: 0x10151f, metalness: 0.4, roughness: 0.55 });
 
   for (const s of [-1, 1]) {
-    const pillar = new THREE.Mesh(new THREE.BoxGeometry(3, 34, 58), body);
-    pillar.position.set(s * (C.wallHalfW + 2.5), 1, -2);
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(3, 56, 62), body);
+    pillar.position.set(s * (C.wallHalfW + 2.5), 10, -2);
     scene.add(pillar);
   }
 
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(40, 3, 26), body);
-  hood.position.set(0, 17.5, -14);
+  // clear of the drop board, which now runs up the back of the machine
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(40, 3, 18), body);
+  hood.position.set(0, 35, -8);
   scene.add(hood);
 
   const marquee = new THREE.Mesh(
-    new THREE.BoxGeometry(36, 7, 1.4),
+    new THREE.BoxGeometry(36, 6, 1.4),
     new THREE.MeshStandardMaterial({
       color: 0x241634, metalness: 0.2, roughness: 0.5,
       emissive: 0xff9c3c, emissiveIntensity: 0.85,
     }));
-  marquee.position.set(0, 14.5, -25.4);
+  marquee.position.set(0, 33.5, -17.2);
   scene.add(marquee);
 
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(200, 2, 200),
+    new THREE.BoxGeometry(240, 2, 240),
     new THREE.MeshStandardMaterial({ color: 0x080b12, metalness: 0.1, roughness: 0.9 }));
-  floor.position.set(0, -17, 0);
+  floor.position.set(0, -18, 0);
   scene.add(floor);
 }
+
+/* ------------------------------------------------------------------ *
+ *  Framing
+ *
+ *  The machine is nearly 40 units tall now that the drop board runs up
+ *  the back, so a hand-picked camera distance no longer works in both
+ *  orientations. Fit the actual corners instead.
+ * ------------------------------------------------------------------ */
+
+function contentCorners() {
+  let lo = [ 1e9,  1e9,  1e9], hi = [-1e9, -1e9, -1e9];
+  const add = (c, h) => {
+    for (let i = 0; i < 3; i++) {
+      lo[i] = Math.min(lo[i], c[i] - h[i]);
+      hi[i] = Math.max(hi[i], c[i] + h[i]);
+    }
+  };
+  for (const b of cabinetBoxes()) add(b.c, b.h);
+  for (const b of dropperBoxes()) add(b.c, b.h);
+  for (const g of dropperPegs()) add(g.c, [g.r, g.r, g.r]);
+  lo[0] -= 3.5; hi[0] += 3.5;                    // the side pillars
+
+  const corners = [];
+  for (let i = 0; i < 8; i++) {
+    corners.push(new THREE.Vector3(
+      (i & 1) ? hi[0] : lo[0],
+      (i & 2) ? hi[1] : lo[1],
+      (i & 4) ? hi[2] : lo[2]));
+  }
+  return { corners, centre: new THREE.Vector3(
+    (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2) };
+}
+
+let BOUNDS = null;
 
 function onResize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
 
-  // Pull the camera back far enough that the whole cabinet fits, whichever
-  // way the phone is held. Portrait is bound by the width, landscape by the
-  // depth, so take whichever needs more room.
-  const vFov = camera.fov * Math.PI / 180;
-  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
-  const dist = Math.max(20 / Math.tan(hFov / 2), 23 / Math.tan(vFov / 2)) * 1.02;
+  if (!BOUNDS) BOUNDS = contentCorners();
+  const target = BOUNDS.centre;
 
-  const tilt = 0.62;                       // rise over run
-  const len  = Math.hypot(1, tilt);
-  const tx = 0, ty = 2, tz = 0;            // what we look at
-  camera.position.set(tx, ty + dist * tilt / len, tz + dist / len);
-  camera.lookAt(tx, ty, tz);
+  const vFov = camera.fov * Math.PI / 180;
+  const tanV = Math.tan(vFov / 2);
+  const tanH = Math.tan(vFov / 2) * camera.aspect;
+
+  const tilt = 0.55;
+  const fwd = new THREE.Vector3(0, -tilt, -1).normalize();   // camera to target
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+  const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+
+  // For a point P, depth = dist + (P-target).fwd and screen offsets are fixed,
+  // so each corner sets a minimum distance. Take the largest.
+  let dist = 0;
+  const rel = new THREE.Vector3();
+  for (const p of BOUNDS.corners) {
+    rel.subVectors(p, target);
+    const f = rel.dot(fwd);
+    dist = Math.max(dist,
+      Math.abs(rel.dot(right)) / tanH - f,
+      Math.abs(rel.dot(up)) / tanV - f);
+  }
+  dist *= 1.03;
+
+  camera.position.copy(target).addScaledVector(fwd, -dist);
+  camera.lookAt(target);
   camera.updateProjectionMatrix();
 }
 
@@ -279,6 +379,11 @@ function stamp(coin) {
   write(coin, coin.body.translation(), coin.body.rotation(), true);
 }
 
+function fill(n) {
+  if (pile) machine.seedFrom(pile, n, stamp);
+  else machine.seed(n, stamp);
+}
+
 /* ------------------------------------------------------------------ *
  *  Input - press to aim, slide to move, lift to drop
  * ------------------------------------------------------------------ */
@@ -314,8 +419,8 @@ function bindInput() {
   });
 
   ui.sCoins.addEventListener('input', () => { ui.vCoins.textContent = ui.sCoins.value; });
-  ui.sCoins.addEventListener('change', () => machine.seed(+ui.sCoins.value, stamp));
-  ui.btnReseed.addEventListener('click', () => machine.seed(+ui.sCoins.value, stamp));
+  ui.sCoins.addEventListener('change', () => fill(+ui.sCoins.value));
+  ui.btnReseed.addEventListener('click', () => fill(+ui.sCoins.value));
 
   ui.sHz.addEventListener('change', () => {
     physHz = +ui.sHz.value;
@@ -335,7 +440,7 @@ function rebuildMachine() {
     iterations: +ui.sIter.value,
     shape: ui.sShape.value,
   });
-  machine.seed(+ui.sCoins.value, stamp);
+  fill(+ui.sCoins.value);
   lastPhase = 0;
 }
 
@@ -396,7 +501,6 @@ function cueSound() {
   if (payQueue)  { audio.payout(payQueue); payQueue = 0; }
   if (lossQueue) { audio.loss(); lossQueue = 0; }
 
-  // The pusher thumps at each end of its travel.
   const phase = (machine.elapsed / CFG.period) % 1;
   if (phase < lastPhase || (lastPhase < 0.5 && phase >= 0.5)) audio.clunk();
   lastPhase = phase;

@@ -8,10 +8,24 @@
  * ------------------------------------------------------------------ */
 
 export const CFG = {
-  gravity:    -600,
+  /* ---- how heavy the coins feel ----
+   * Gravity is the main lever. Friction is what stops the pile marching
+   * forward and shedding coins when nobody is playing: the pusher drives
+   * the carpet, and friction against the deck is the only thing resisting.
+   * Tuned with test/feel.mjs - do not eyeball these. */
+  gravity:      -900,
+  coinFriction:   0.55,
+  deckFriction:   0.80,
+  linDamp:        0.55,
+  angDamp:        0.80,
+  restitution:    0.02,
 
-  coinShape:  'box',   // what the SOLVER sees - 'box' or 'cylinder'. The coin
-                       // you look at is always a disc; see coinCollider().
+  coinShape: 'cylinder',  // what the SOLVER sees - 'cylinder' or 'box'.
+                       // A real disc. Box is about twice as cheap but lets
+                       // coins overlap slightly, and that shows badly on a
+                       // single coin bouncing down the drop chute. At the
+                       // pile sizes this machine actually settles at, the
+                       // cylinder is affordable - see test/bench.mjs.
   coinR:       1.20,   // visible radius
   coinT:       0.30,   // visible thickness
   colT:        0.40,   // collider thickness - fatter than the visible coin.
@@ -38,7 +52,49 @@ export const CFG = {
 
   dropY:      11.5,
   dropZ:      -7,      // over the exposed part of the upper deck
-  aimLimit:   13,
+  aimLimit:   11,      // how far along the chute you can aim
+
+  /* ---- the drop chute ----
+   * A board at the back that the coin falls through on edge, behind glass.
+   * Two antlers throw it one way or the other, then a field of pins
+   * scatters it, so where it lands is only partly yours to choose. */
+  chuteZ:     -20,     // the plane the board lives in
+  chuteTopY:   31.0,   // a coin enters here
+  chuteExitY:  10.2,   // and falls out of the bottom here
+  chuteHalfW:  12.5,
+  chuteGap:     0.62,  // depth of the channel - one coin, on edge
+  chuteFriction: 0.08, // the board is slick, unlike the decks
+
+  /* The antlers are staggered in height, not mirrored. Two bars meeting at
+   * a symmetric apex give a coin a balance point: it lands dead centre, its
+   * velocity falls under the sleep threshold, and it perches there forever.
+   * No amount of friction fixes a real equilibrium - the apex has to go.
+   * Staggering also means a coin genuinely changes direction twice. */
+  antlerY:     26.5,
+  antlerX:      4.43,  // centres. Set so the inner tips stop short of the
+                       // middle and leave a gap wider than a coin.
+  antlerStagger: 0,    // mirrored, and NOT overlapping. Each bar is highest
+                       // at its inner end, so crossing them puts two high
+                       // corners either side of centre with a dip between -
+                       // a V-shaped well that caught 25 of 25 centre drops
+                       // and that no nudge could shake loose. A clear gap in
+                       // the middle has no feature to rest on at all.
+  chuteNudgeAfter: 1.2, // seconds stuck in the chute before a shove
+  chuteNudge:      5.5, // flick speed. A real machine vibrates; this is that.
+  antlerHalfL:  3.1,
+  antlerTilt:   0.42,  // radians
+
+  /* The pin lattice has to be sized against the coin, not eyeballed. A coin
+   * is 2.4 across, so every gap between neighbouring pins - sideways AND
+   * diagonally to the next staggered row - must clear that with room to
+   * spare, or coins simply sit on top of the first row and never come down.
+   * The first version used 3.0 spacing with 0.42 pins: a 2.16 gap for a 2.4
+   * coin. 89 of 90 test drops wedged. See test/chute.mjs. */
+  pegTopY:     21.0,
+  pegRows:      4,
+  pegDY:        3.0,
+  pegDX:        3.6,
+  pegR:         0.30,
 
   /* ---- the payout tray ----
    * Coins over the lip land in a real tray with real walls and sit there a
@@ -61,4 +117,7 @@ export const COLOUR = {
   trim:   0x171d2c,
   pusher: 0x4a5878,
   tray:   0x11161f,
+  chute:  0x1b2336,
+  peg:    0xc8d2e8,
+  antler: 0xe0964a,
 };

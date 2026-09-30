@@ -9,140 +9,150 @@ Live: https://anonymousecheese.github.io/arcade-gaming/
 
 ## Where this is
 
-A playable two-deck coin pusher with real rigid-body physics, hundreds of
-coins, a payout tray, and synthesised sound. No build step, no CDN.
+A two-deck coin pusher with real rigid-body physics, a pachinko-style drop
+chute, a payout tray and synthesised sound. No build step, no CDN.
 
 | File | What it is |
 | --- | --- |
-| `config.js` | Every machine dimension. One place to tune the feel. |
-| `physics.js` | The machine — cabinet, pusher, tray, coin pool, step loop. No three.js, no DOM, so it runs under Node and is tested exactly as it ships. |
+| `config.js` | Every dimension and feel knob. One place to tune. |
+| `physics.js` | The machine — cabinet, pusher, chute, tray, coin pool, step loop. No three.js, no DOM, so it runs under Node and is tested exactly as it ships. |
 | `app.js` | Renderer, input, sound cues, performance panel. |
 | `audio.js` | All the sound, synthesised. No audio files. |
-| `index.html` / `style.css` | Shell and UI. |
+| `pile.json` | A pile settled offline. **Generated — do not hand-edit.** |
 | `vendor/` | three.js and Rapier, committed. |
-| `test/physics.test.mjs` | 14 checks. All passing. |
-| `test/bench.mjs` | Deterministic shape and rate comparison. |
-| `test/overlap.mjs` | Whether the box collider is visible. |
+| `test/` | See below. All runnable with plain `node`. |
+
+```
+node test/physics.test.mjs   # 18 checks, no browser needed
+node test/make-pile.mjs      # regenerate pile.json (~2 min)
+node test/chute.mjs          # does the drop board jam?
+node test/feel.mjs           # why does it shed coins when idle?
+node test/bench.mjs          # collider shape and physics rate
+node test/overlap.mjs        # is the box collider visible?
+```
 
 **Controls:** press and slide to aim, lift to drop. `Sound` toggles audio,
 `FPS` opens the performance panel.
 
 **Cache rule:** every intra-app import carries `?v=N`, and `index.html`
-references `app.js?v=N` / `style.css?v=N`. Bump them **all together** — if
-`app.js` and `physics.js` disagree about the version on `config.js`, the
-browser quietly loads two separate copies of it.
+references `app.js?v=N` / `style.css?v=N`. Bump them **all together**, or the
+browser quietly loads two copies of `config.js`.
 
 ---
 
-## The question this was built to answer
+## What was wrong, and what it actually was
 
-> As many coins as a normal arcade machine, running well on mobile Safari.
+### "The coins are too light — they drop even when I'm not moving"
 
-**Yes, 600 coins is fine.** On a 2021 15-watt laptop it uses under a third of
-the frame budget, and a modern iPhone is faster than that laptop.
+The weight was a red herring, and the measurement said so. Sweeping gravity,
+friction and damping across six settings moved idle drain by almost nothing
+(`test/feel.mjs`), because **the pusher is kinematic** — it shoves through any
+amount of friction with unlimited force. Sweeping stroke length, cycle period
+and starting coin count did nothing either.
 
-Ryzen 5 5500U, single core, Node — a **pessimistic floor**, since a recent
-iPhone is roughly 1.5–2.5× faster single-core:
+The real cause: the machine was filled from an **artificial grid above its
+natural capacity**, and then spent about two minutes collapsing into shape,
+shedding coins the whole way. That collapse was happening on the player's
+time, which is exactly what it looked like — a machine leaking for no reason.
 
-| Coins | 30 Hz, cylinder | 30 Hz, box |
-| --- | --- | --- |
-| 300 | 12.75 ms — 38% | **5.04 ms — 15%** |
-| 450 | 16.74 ms — 50% | **7.62 ms — 23%** |
-| 600 | 24.01 ms — 72% | **9.68 ms — 29%** |
+**Fix: settle the pile offline once and ship it.** `test/make-pile.mjs`
+over-fills to 620 coins, runs until a full 20-second window passes with
+nothing falling (360 simulated seconds), and records every coin's transform to
+`pile.json`. The app loads that and starts at rest.
 
----
+| | coins lost in two idle minutes |
+| --- | --- |
+| grid seed | 137 |
+| **shipped pile** | **12** |
 
-## What was learned
+Taking coins off the *top* is how the slider works for smaller piles — lifting
+weight off a settled pile leaves the rest settled.
 
-**1. The collider shape was the whole ballgame.** Rapier has no fast path for
-cylinder-against-cylinder contacts, and with hundreds of coins touching that
-cost dominated everything else. Swapping the *collider* to a box — sized to
-cover the same ground as the disc — roughly halves the cost. The coin you look
-at is still a disc; only the solver sees a square. A 10-sided prism was 5×
-*worse* than the cylinder, so "nearly round" is the worst of both worlds.
+Gravity did go up (−600 → −900) because heavier is what was asked for and it
+costs nothing. It just was not the bug.
 
-**2. The box cheat is nearly invisible, and that is measured, not assumed.**
-`test/overlap.mjs` compares how close two dead-flat coplanar coins get. The
-cylinder is the control and bottoms out at 2.306 units against a 2.40 disc —
-that 3.9% is solver contact slop. The box reaches 2.008: **7% of a coin
-overlap on average, 16% worst case**, or roughly 1–3 px on a phone. Mean is
-invisible; worst case might show in a freeze-frame. The cylinder toggle is in
-the performance panel if you disagree.
+### The box collider is gone
 
-*Getting there took two wrong answers.* The first filter counted **stacked**
-coins as clipping; the second allowed 26° of tilt, so shingled coins leaning
-on each other showed as overlap. Both times the cylinder control gave an
-impossible number, which is what caught it. Keep the control.
-
-**3. Sleeping buys nothing here, and I was wrong to expect it to.** The usual
-big win in a physics pile is that settled bodies sleep and cost nothing. It
-does not apply: the coin carpet is one connected contact island touching a
-pusher that never stops, so the whole field stays awake — measured at 400/400.
-The step costs above are steady state, not a warm-up.
-
-**4. Multi-threaded physics is off the table.** It needs COOP/COEP headers,
-which GitHub Pages cannot set. Single-threaded WASM only.
-
-**5. An idle machine settles instead of draining.** Left alone it sheds coins
-until the front of the pile no longer reaches the lip, then stops — 68 in the
-first 10 seconds, decaying to ~2, stabilising around 334 on the field. That is
-what a real machine does, and it is now a test.
-
-**6. It plays like a coin pusher without being told to.** At equilibrium
-16–23% of dropped coins come back, the gutters eat more than the lip pays, and
-wins arrive in bursts — 37 in one ten-second window, then nothing for twenty.
-That avalanche rhythm fell out of the physics rather than being scripted.
+The settled pile is 378 coins, not the 600 the slider used to allow — and at
+that size a true cylinder collider costs **12.6 ms/step, 38% of budget** on a
+15-watt laptop. So the box-shaped-collider trick is retired. Coins are real
+discs now, which also matters for the chute, where a single coin is under
+close watch. `test/overlap.mjs` and the box option remain if it is ever needed
+again.
 
 ---
 
-## Decisions taken
+## The drop chute
 
-- **Rapier** (Rust → WASM) and **three.js**, both vendored. Rapier's WASM is
-  inlined as base64, so there is no build step and no CDN at runtime.
-- **Physics at 30 Hz, rendering at 60 fps**, interpolating between the last two
-  states. Halves the physics cost; a slow pusher loses nothing visually.
-- **Box collider by default**, cylinder available in the panel.
-- **One instanced draw call** for every coin. Rendering is not a factor.
-- **Coins are created once and recycled forever.** Flat memory, no allocation
-  stalls, however long it runs.
-- **The payout tray has real walls.** Winnings clatter in, rest for a couple of
-  seconds and are swept. It never holds many, so it costs almost nothing, and
-  watching them land is the payoff.
-- **Sound is synthesised**, not sampled — inharmonic partials for the metal
-  ring, filtered noise for the strike, a motor drone and a pile-rustle layer
-  whose level follows how much the coins are actually moving.
-- **450 coins default, 600 maximum.** The seed layout holds 638.
+A board at the back that a coin falls through **on edge, behind glass**: two
+antlers throw it one way or the other, then 22 pins scatter it. Aim sets where
+it enters; the board decides where it lands.
+
+Measured: **89 of 90 clear it**, mean scatter 2.4 coin widths, drift 0.09
+(symmetric), aim-to-landing correlation 0.85 — aim matters without deciding.
+
+Getting there took four wrong versions, each caught by `test/chute.mjs` rather
+than by eye. Worth recording, because every one of them looked fine in the
+source:
+
+1. **Pins 3.0 apart with radius 0.42 — a 2.16 gap for a 2.4 coin.** 89 of 90
+   wedged. A pin lattice has to be sized against the coin, sideways *and*
+   diagonally to the next staggered row.
+2. **A pocket between the outermost pin and the side wall**, 0.5 units wide on
+   staggered rows: a coin could enter but not pass. Rows now stop well short
+   of the walls.
+3. **Deck friction in the chute.** A coin resting on a pin and touching a
+   grippy wall simply stuck. The board is slick now, like real plastic.
+4. **Overlapping the antlers to remove the apex — which created a worse one.**
+   Each bar is highest at its *inner* end, so crossing them puts two high
+   corners either side of centre with a dip between: a V-shaped well that
+   caught 25 of 25 centre drops and that no nudge could shake loose. The
+   antlers now leave a clear gap wider than a coin, so there is no feature at
+   the centre at all.
+
+There is still an **anti-jam nudge**: a coin stuck in the chute for 1.2s gets
+a flick with a roll on it. A real machine vibrates. Note it sets a *velocity* —
+the first version applied an impulse, which has to be divided by mass and
+fought against gravity of 900, and which was uniform-random about zero, so it
+fired 125 times and moved nothing.
+
+---
+
+## What was learned earlier
+
+- **Rapier has no fast path for cylinder-vs-cylinder contacts.** That drove
+  every early performance decision. A 10-sided prism is 5× *worse* than a
+  cylinder, so "nearly round" is the worst of both worlds.
+- **Sleeping buys nothing in a coin pusher.** The carpet is one connected
+  contact island touching a pusher that never stops, so the whole field stays
+  awake by construction — measured at 393/393.
+- **Multi-threaded physics is unavailable.** It needs COOP/COEP headers, which
+  GitHub Pages cannot set. Single-threaded WASM only.
+- **The payout rhythm came out of the physics, not a script.** 19–23% of coins
+  dropped come back, the gutters eat more than the lip pays, and wins arrive
+  in bursts.
 
 ---
 
-## Next, in order
+## Next
 
-1. **Open it on the phone.** Slide the coin count up until the frame rate stops
-   holding — that number is the real budget, and every figure above is a
-   stand-in for it. Also try the cylinder toggle and see whether you can tell.
-2. **Nail down the mechanics of the real machine.** The only thing blocking the
-   actual game:
-   - What makes it *parallel* — two playfields at once? coins crossing between
-     two sides?
-   - What do the special slots or holes do when a coin lands in one?
-   - Is there a jackpot meter, and what fills it?
-   - Anything on the field besides coins — prizes, capsules, special coins?
-
-   The Chinese name on the cabinet would let me search for it directly; four
-   searches in English and Chinese found nothing under "Parallel Realms".
-
----
+1. **Open it on the phone.** The performance panel has coin count, physics
+   rate, collider shape and live timings. Everything above is measured on a
+   2021 laptop that is slower single-core than a modern iPhone, so these are a
+   floor, not a ceiling.
+2. **A photo of the real machine.** Six searches in English and Chinese found
+   nothing under "Parallel Realms". Web search returns text to me, not
+   pictures — but I can read an image file on this PC. Put one outside the
+   repo (it is public) and I will build to it. Most useful: the playfield from
+   where you stand, the whole cabinet, and anything with the name on it.
 
 ## Deliberately not built yet
 
-Choices, not oversights:
-
-- **A static coin bed** at the back, rendered but not simulated, to make the
-  field look fuller than what is solved. Not needed at 600 coins — held in
-  reserve in case a real phone disappoints.
-- **Physics in a Web Worker.** Would keep rendering smooth under load. Worth
-  doing only if the phone turns out tight.
-- **Cabinet art.** There is a marquee, pillars and a hood, but no graphics on
-  them. Wants a theme, and the theme depends on the machine above.
+- **Cabinet art.** There is a marquee, pillars, a hood and a lit drop board,
+  but no graphics on any of it. Wants a theme, and the theme depends on the
+  machine above.
+- **A static coin bed** behind the pile, rendered but not simulated, if a real
+  phone turns out tighter than this laptop suggests.
+- **Physics in a Web Worker**, same condition.
 - **The game around the simulation:** what a coin costs, what you are playing
-  for, bonuses, progression, anything to keep playing for.
+  for, bonuses, progression.

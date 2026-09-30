@@ -16,8 +16,8 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js?v=2';
-import * as P from '../physics.js?v=2';
+import { CFG } from '../config.js?v=3';
+import * as P from '../physics.js?v=3';
 await RAPIER.init();
 
 const prng = s => () => {

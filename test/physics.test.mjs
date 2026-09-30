@@ -7,9 +7,11 @@
  *  machine can be tested exactly as it ships.
  * ------------------------------------------------------------------ */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js?v=2';
-import * as P from '../physics.js?v=2';
+import { CFG } from '../config.js?v=3';
+import * as P from '../physics.js?v=3';
 
 await RAPIER.init();
 
@@ -104,7 +106,41 @@ ok('every coin is accounted for',
 console.log(`\n      dropped ${dropped}, won ${won}, lost ${lost}` +
             `  ->  ${(won / dropped * 100).toFixed(0)}% of coins dropped came back`);
 
-/* ---------------- 6. what does a step cost? ---------------- */
+/* ---------------- 6. the pile we actually ship ---------------- */
+
+// This is the regression guard for the complaint that started it: coins
+// falling off while nobody is playing. A grid-seeded machine sheds well over
+// a hundred coins in its first two idle minutes as it collapses into shape.
+// The shipped pile was settled offline and must not.
+const pile = JSON.parse(readFileSync(
+  fileURLToPath(new URL('../pile.json', import.meta.url)), 'utf8'));
+
+ok('the shipped pile matches the collider we ship', pile.shape === CFG.coinShape,
+   `pile built for ${pile.shape}, config says ${CFG.coinShape}`);
+
+const q = P.createMachine(RAPIER, { hz: 30, maxCoins: 800 });
+ok('the pile loads', q.seedFrom(pile, pile.count) === pile.count, `${pile.count} coins`);
+
+let shed = 0;
+for (let w = 0; w < 6; w++) {
+  const before = q.won + q.lost;
+  for (let i = 0; i < 30 * 20; i++) q.step();
+  shed += q.won + q.lost - before;
+}
+ok('a settled machine stays put when nobody plays', shed < 25,
+   `${shed} coins fell in two idle minutes`);
+ok('and keeps its pile', q.active.length > pile.count * 0.9,
+   `${q.active.length} of ${pile.count} left`);
+
+const t1 = performance.now();
+for (let i = 0; i < 300; i++) q.step();
+const settledMs = (performance.now() - t1) / 300;
+console.log(`
+      the shipped pile costs ${settledMs.toFixed(2)} ms/step at 30 Hz ` +
+            `= ${(settledMs / 33.3 * 100).toFixed(0)}% of budget here`);
+q.world.free();
+
+/* ---------------- 7. what does a step cost? ---------------- */
 
 console.log('\n  Step cost on this machine, single core:');
 for (const n of [200, 400, 600]) {
