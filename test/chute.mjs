@@ -10,8 +10,8 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js?v=4';
-import * as P from '../physics.js?v=4';
+import { CFG } from '../config.js?v=5';
+import * as P from '../physics.js?v=5';
 await RAPIER.init();
 
 const HZ = 30;
