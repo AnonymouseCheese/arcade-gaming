@@ -118,17 +118,18 @@ export const CFG = {
 };
 
 export const COLOUR = {
-  coin:   0xffc83d,   // gold, and bright enough to read as money
-  deck:   0x11414f,   // deep teal. Cool and dark under warm coins, so the
-  wall:   0x0d313d,   // coins are the brightest thing on screen by a mile.
-  trim:   0x09222b,
-  pusher: 0x1d6076,
-  tray:   0x071a22,
-  chute:  0x103642,
-  glass:  0xbfe9f5,
-  peg:    0xe4f6fb,
-  antler: 0xff7a3d,
-  panel:  0x17798f,   // lit side panels
-  neon:   0xff3d8b,   // magenta
-  neon2:  0x2de2e6,   // cyan
+  coin:   0xffc83d,   // gold
+  deck:   0x1a6b86,   // The cabinet is lit, not dark. An arcade machine is the
+  wall:   0x2e8fad,   // brightest thing in a dim room, so these surfaces are
+  trim:   0x1d6076,   // bright teal rather than the near-black they started as.
+  pusher: 0x47b4cf,
+  tray:   0x15455a,
+  chute:  0x2a7e97,
+  glass:  0xcff2fb,
+  peg:    0xf2fbff,
+  antler: 0xff8a45,
+  panel:  0x2fd0e8,   // backlit side panels
+  neon:   0xff4d9b,   // magenta
+  neon2:  0x45f0f4,   // cyan
+  body:   0x123a4d,   // the cabinet shell itself, behind the lit panels
 };

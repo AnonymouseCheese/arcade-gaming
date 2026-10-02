@@ -1,10 +1,10 @@
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG, COLOUR } from './config.js?v=4';
+import { CFG, COLOUR } from './config.js?v=5';
 import {
   cabinetBoxes, pusherSlabs, dropperBoxes, dropperPegs, createMachine,
-} from './physics.js?v=4';
-import { createAudio } from './audio.js?v=4';
+} from './physics.js?v=5';
+import { createAudio } from './audio.js?v=5';
 
 /* ------------------------------------------------------------------ *
  *  Coin pusher
@@ -47,7 +47,7 @@ async function init() {
   // into shape on the player's time, shedding coins for two minutes while it
   // does - which reads as the machine leaking for no reason.
   try {
-    const res = await fetch('pile.json?v=4');
+    const res = await fetch('pile.json?v=5');
     if (res.ok) pile = await res.json();
   } catch { /* fall back to the grid seed below */ }
 
@@ -95,7 +95,11 @@ function buildRenderer() {
   // iPhones report a device pixel ratio of 3. Rendering at 3x costs a lot of
   // fill rate for very little visible gain on a screen this small.
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x070a12);
+  renderer.setClearColor(0x0a1a24);
+  // Everything below is pushed hard enough to clip without this; ACES rolls
+  // the highlights off instead of blowing the coins out to white.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.18;
 }
 
 /** A soft vertical wash behind the cabinet, so it does not float in a void. */
@@ -103,9 +107,9 @@ function backdrop() {
   const c = document.createElement('canvas');
   c.width = 4; c.height = 256;
   const g = c.getContext('2d').createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0,    '#0a2230');
-  g.addColorStop(0.55, '#071520');
-  g.addColorStop(1,    '#04090e');
+  g.addColorStop(0,    '#1d4f66');     // an arcade has other machines glowing
+  g.addColorStop(0.5,  '#102f41');     // around it, not a black void
+  g.addColorStop(1,    '#071820');
   const ctx = c.getContext('2d');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 4, 256);
@@ -124,25 +128,35 @@ function buildScene() {
   // The first version lit this like a cave and everything came out brown.
   // An arcade is a bright room full of coloured light sources, and the coins
   // have to be the brightest thing on screen.
-  scene.add(new THREE.HemisphereLight(0x9fe4ff, 0x123540, 1.35));
+  scene.add(new THREE.HemisphereLight(0xcdefff, 0x2a5d70, 1.9));
 
-  const key = new THREE.DirectionalLight(0xfff4e0, 1.55);
+  const key = new THREE.DirectionalLight(0xfffaf0, 2.1);
   key.position.set(18, 54, 34);
   scene.add(key);
 
-  const magenta = new THREE.DirectionalLight(COLOUR.neon, 0.85);
+  const fill = new THREE.DirectionalLight(0xd9f2ff, 0.9);
+  fill.position.set(-20, 30, 40);
+  scene.add(fill);
+
+  const magenta = new THREE.DirectionalLight(COLOUR.neon, 1.0);
   magenta.position.set(-36, 18, -8);
   scene.add(magenta);
 
-  const cyan = new THREE.DirectionalLight(COLOUR.neon2, 0.65);
+  const cyan = new THREE.DirectionalLight(COLOUR.neon2, 0.8);
   cyan.position.set(36, 15, 8);
   scene.add(cyan);
 
-  const field = new THREE.PointLight(0xfff0cf, 1.5, 95, 2);
-  field.position.set(0, 23, 8);
-  scene.add(field);
+  // The tube under the hood that every real pusher has, pointed at the field.
+  const tube = new THREE.PointLight(0xfff4db, 4.2, 110, 2);
+  tube.position.set(0, CFG.chuteTopY - 2, 4);
+  scene.add(tube);
 
-  const board = new THREE.PointLight(COLOUR.neon2, 0.9, 60, 2);
+  // and a second one low at the front, so the near edge is not in shadow
+  const front = new THREE.PointLight(0xffe9c0, 2.4, 70, 2);
+  front.position.set(0, 10, CFG.lipZ + 6);
+  scene.add(front);
+
+  const board = new THREE.PointLight(COLOUR.neon2, 1.6, 60, 2);
   board.position.set(0, CFG.antlerY, CFG.chuteZ + 8);
   scene.add(board);
 }
@@ -184,11 +198,13 @@ const MATS = {};
 function material(kind) {
   if (MATS[kind]) return MATS[kind];
   const spec = {
-    deck:   { color: COLOUR.deck,   metalness: 0.35, roughness: 0.62 },
-    wall:   { color: COLOUR.wall,   metalness: 0.25, roughness: 0.75 },
-    trim:   { color: COLOUR.trim,   metalness: 0.30, roughness: 0.70 },
-    tray:   { color: COLOUR.tray,   metalness: 0.55, roughness: 0.45 },
-    pusher: { color: COLOUR.pusher, metalness: 0.70, roughness: 0.34 },
+    deck:   { color: COLOUR.deck,   metalness: 0.15, roughness: 0.55,
+              emissive: COLOUR.deck, emissiveIntensity: 0.18 },
+    wall:   { color: COLOUR.wall,   metalness: 0.15, roughness: 0.6,
+              emissive: COLOUR.wall, emissiveIntensity: 0.22 },
+    trim:   { color: COLOUR.trim,   metalness: 0.25, roughness: 0.6 },
+    tray:   { color: COLOUR.tray,   metalness: 0.45, roughness: 0.45 },
+    pusher: { color: COLOUR.pusher, metalness: 0.55, roughness: 0.3 },
     chute:  { color: COLOUR.chute,  metalness: 0.45, roughness: 0.55 },
     antler: { color: COLOUR.antler, metalness: 0.65, roughness: 0.28,
               emissive: COLOUR.antler, emissiveIntensity: 0.35 },
@@ -252,7 +268,7 @@ function buildCabinetMeshes() {
       emissive: 0x6a4d10, emissiveIntensity: 0.7,
     }));
   chuteMesh.rotation.x = Math.PI;                 // point it downward
-  chuteMesh.position.set(0, CFG.chuteTopY + 2.4, CFG.chuteZ);
+  chuteMesh.position.set(0, CFG.chuteTopY - 0.6, CFG.chuteZ + 1.6);
   scene.add(chuteMesh);
 }
 
@@ -308,15 +324,23 @@ function signTexture() {
 function buildCabinetShell() {
   const C = CFG;
   const body = new THREE.MeshStandardMaterial({
-    color: 0x0b2029, metalness: 0.45, roughness: 0.5 });
+    color: COLOUR.body, metalness: 0.4, roughness: 0.45 });
 
-  const glow = colour => new THREE.MeshStandardMaterial({
-    color: colour, metalness: 0.1, roughness: 0.4,
-    emissive: colour, emissiveIntensity: 1.35 });
+  // Unlit on purpose. A lit material keeps receiving the scene's lights on top
+  // of whatever it emits, so against bright key and fill every strip clipped to
+  // flat white and lost its colour. MeshBasicMaterial ignores lighting
+  // entirely, which is exactly what an LED should do.
+  // Dimmer than the light colours they stand for. ACES desaturates bright
+  // values toward white, so a near-maximum cyan tone-maps to pale grey; these
+  // are pitched low enough to come out of the tone mapper still coloured.
+  const glow = colour => new THREE.MeshBasicMaterial({ color: colour });
+  const LED  = { magenta: 0xc01f63, cyan: 0x0d8c99, tube: 0xe8cf9a };
 
+  // Backlit side art. Real cabinets glow from the inside; a flat dark panel
+  // is what made this look like furniture rather than a machine.
   const panel = new THREE.MeshStandardMaterial({
-    color: COLOUR.panel, metalness: 0.3, roughness: 0.45,
-    emissive: COLOUR.panel, emissiveIntensity: 0.35 });
+    color: COLOUR.panel, metalness: 0.0, roughness: 0.5,
+    emissive: COLOUR.panel, emissiveIntensity: 1.5 });
 
   for (const side of [-1, 1]) {
     const x = side * (C.wallHalfW + 2.0);
@@ -325,7 +349,7 @@ function buildCabinetShell() {
     // it reads from the player's angle. The earlier strip sat down the side
     // where the panel hid all but a sliver of it.
     shellBox([side * (C.wallHalfW + 1.0), 8.2, -2], [0.45, 0.4, 26],
-             glow(side < 0 ? COLOUR.neon : COLOUR.neon2));
+             glow(side < 0 ? LED.magenta : LED.cyan));
     shellBox([x - side * 0.6, 3.0, -2], [0.3, 8.5, 26.5], panel);
   }
 
@@ -343,9 +367,21 @@ function buildCabinetShell() {
   scene.add(sign);
   SHELL.push({ c: [0, C.chuteTopY + 2.6, C.chuteZ - 1.95], h: [C.wallHalfW + 0.6, 1.8, 0.1] });
 
+  // a slim tube under the hood, read as the source of the field light
+  shellBox([0, C.chuteTopY - 1.4, 2], [C.wallHalfW - 2, 0.16, 0.5], glow(LED.tube));
+
+  // LED runs along both edges of the playfield
+  for (const side of [-1, 1]) {
+    shellBox([side * (C.floorHalfW + 0.7), 0.3, (C.lipZ + C.gutterFromZ) / 2],
+             [0.17, 0.17, (C.lipZ - C.gutterFromZ) / 2],
+             glow(side < 0 ? LED.magenta : LED.cyan));
+  }
+  // and across the lip, where the coins drop out
+  shellBox([0, 0.3, C.lipZ + 0.45], [C.floorHalfW, 0.17, 0.17], glow(LED.cyan));
+
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(260, 2, 260),
-    new THREE.MeshStandardMaterial({ color: 0x05131a, metalness: 0.1, roughness: 0.92 }));
+    new THREE.MeshStandardMaterial({ color: 0x0d2733, metalness: 0.2, roughness: 0.8 }));
   floor.position.set(0, -11.6, 0);
   scene.add(floor);
 }
