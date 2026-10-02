@@ -1,4 +1,4 @@
-import { CFG } from './config.js?v=3';   // keep the ?v in step with app.js
+import { CFG } from './config.js?v=4';   // keep the ?v in step with app.js
 
 /* ------------------------------------------------------------------ *
  *  The machine, as physics only. No renderer, no DOM - so this file
@@ -151,10 +151,12 @@ export function pusherZ(elapsed) {
  */
 export function seedLayout(n, rand = Math.random) {
   const C = CFG, step = 2.55, top = C.upperY + C.slabRise;
-  const regions = [
-    { z0: -3,  z1: 13,  ys: [0.30, 0.78, 1.26, 1.74] },                       // lower deck
+  const edge = C.floorHalfW - 1.4;        // derived, so narrowing the machine
+  const regions = [                       // does not strand coins in the gutters
+    { z0: -3,  z1: C.lipZ - 3,  ys: [0.30, 0.78, 1.26, 1.74] },               // lower deck
     { z0: -20, z1: -9,  ys: [C.slabRise + 0.30, C.slabRise + 0.78] },         // on the lower slab
-    { z0: -11, z1: -1,  ys: [C.upperY + 0.30, C.upperY + 0.78, C.upperY + 1.26] },
+    { z0: -11, z1: C.upperFrontZ - 1,
+      ys: [C.upperY + 0.30, C.upperY + 0.78, C.upperY + 1.26] },
     { z0: -24, z1: -14, ys: [top + 0.30, top + 0.78] },                       // on the upper slab
   ];
 
@@ -162,7 +164,7 @@ export function seedLayout(n, rand = Math.random) {
   for (const r of regions) {
     for (const y of r.ys) {
       for (let z = r.z0; z <= r.z1; z += step) {
-        for (let x = -13; x <= 13; x += step) {
+        for (let x = -edge; x <= edge; x += step) {
           if (out.length >= n) return out;
           out.push({
             x: x + (rand() - 0.5) * 0.5,
