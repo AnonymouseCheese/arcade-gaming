@@ -32,16 +32,23 @@ export const CFG = {
                        // Invisible to the eye, but it stops thin discs from
                        // grinding into one another and jittering.
 
-  wallHalfW:  17,      // cabinet inner half-width
-  floorHalfW: 15,      // lower playfield half-width. The 2 units of daylight
-                       // on each side is the gutter the house eats.
+  wallHalfW:  14,      // cabinet inner half-width. Narrower than life, because
+                       // a phone is a tall window and a wide machine ends up
+                       // as a small object marooned in the middle of it.
+  floorHalfW: 12.8,    // lower playfield half-width. The daylight either side
+                       // is the gutter, and its width sets the house edge:
+                       // 2.0 returns 20%, 1.2 returns 30%, 0.6 returns 50%
+                       // and the pile drains. Measured in test/gutter.mjs.
   gutterFromZ: -10,    // gutters only open up from here forward
 
   backZ:      -26,
-  lipZ:        16,     // front edge of the lower deck. Past this, you win.
+  lipZ:        22,     // front edge of the lower deck. Past this, you win.
+                       // Deep, so the field you play on dominates the view
+                       // instead of competing with the deck above it.
 
-  upperY:      7.5,    // upper deck floor height
-  upperFrontZ:  0,     // upper deck front edge - coins tip off here
+  upperY:      5.5,    // upper deck floor height. Lower than before: a tall
+                       // step made the two decks read as a flight of stairs.
+  upperFrontZ: -2,     // upper deck front edge - coins tip off here
 
   slabRise:    0.85,   // pusher slab top, above its own deck
   slabBackZ:  -34,     // far enough back that no gap ever opens behind it
@@ -52,16 +59,16 @@ export const CFG = {
 
   dropY:      11.5,
   dropZ:      -7,      // over the exposed part of the upper deck
-  aimLimit:   11,      // how far along the chute you can aim
+  aimLimit:    9.5,    // how far along the chute you can aim
 
   /* ---- the drop chute ----
    * A board at the back that the coin falls through on edge, behind glass.
    * Two antlers throw it one way or the other, then a field of pins
    * scatters it, so where it lands is only partly yours to choose. */
   chuteZ:     -20,     // the plane the board lives in
-  chuteTopY:   31.0,   // a coin enters here
+  chuteTopY:   24.5,   // a coin enters here
   chuteExitY:  10.2,   // and falls out of the bottom here
-  chuteHalfW:  12.5,
+  chuteHalfW:  11.0,
   chuteGap:     0.62,  // depth of the channel - one coin, on edge
   chuteFriction: 0.08, // the board is slick, unlike the decks
 
@@ -70,7 +77,7 @@ export const CFG = {
    * velocity falls under the sleep threshold, and it perches there forever.
    * No amount of friction fixes a real equilibrium - the apex has to go.
    * Staggering also means a coin genuinely changes direction twice. */
-  antlerY:     26.5,
+  antlerY:     21.5,
   antlerX:      4.43,  // centres. Set so the inner tips stop short of the
                        // middle and leave a gap wider than a coin.
   antlerStagger: 0,    // mirrored, and NOT overlapping. Each bar is highest
@@ -90,8 +97,8 @@ export const CFG = {
    * spare, or coins simply sit on top of the first row and never come down.
    * The first version used 3.0 spacing with 0.42 pins: a 2.16 gap for a 2.4
    * coin. 89 of 90 test drops wedged. See test/chute.mjs. */
-  pegTopY:     21.0,
-  pegRows:      4,
+  pegTopY:     17.0,
+  pegRows:      3,
   pegDY:        3.0,
   pegDX:        3.6,
   pegR:         0.30,
@@ -101,7 +108,7 @@ export const CFG = {
    * moment before being cleared. Watching your winnings clatter in is the
    * whole payoff, and it costs almost nothing: the tray never holds many. */
   trayY:      -5,      // tray floor, top surface
-  trayFrontZ:  25,     // inside face of the tray's front wall
+  trayFrontZ:  31,     // inside face of the tray's front wall
   trayHold:    2.2,    // seconds a coin rests there before it is swept away
   payLine:    -1.6,    // drop past this, ahead of the lip, and it is a win
 
@@ -111,13 +118,17 @@ export const CFG = {
 };
 
 export const COLOUR = {
-  coin:   0xf2c14b,
-  deck:   0x39435e,
-  wall:   0x222a3d,
-  trim:   0x171d2c,
-  pusher: 0x4a5878,
-  tray:   0x11161f,
-  chute:  0x1b2336,
-  peg:    0xc8d2e8,
-  antler: 0xe0964a,
+  coin:   0xffc83d,   // gold, and bright enough to read as money
+  deck:   0x11414f,   // deep teal. Cool and dark under warm coins, so the
+  wall:   0x0d313d,   // coins are the brightest thing on screen by a mile.
+  trim:   0x09222b,
+  pusher: 0x1d6076,
+  tray:   0x071a22,
+  chute:  0x103642,
+  glass:  0xbfe9f5,
+  peg:    0xe4f6fb,
+  antler: 0xff7a3d,
+  panel:  0x17798f,   // lit side panels
+  neon:   0xff3d8b,   // magenta
+  neon2:  0x2de2e6,   // cyan
 };

@@ -1,10 +1,10 @@
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG, COLOUR } from './config.js?v=3';
+import { CFG, COLOUR } from './config.js?v=4';
 import {
   cabinetBoxes, pusherSlabs, dropperBoxes, dropperPegs, createMachine,
-} from './physics.js?v=3';
-import { createAudio } from './audio.js?v=3';
+} from './physics.js?v=4';
+import { createAudio } from './audio.js?v=4';
 
 /* ------------------------------------------------------------------ *
  *  Coin pusher
@@ -47,7 +47,7 @@ async function init() {
   // into shape on the player's time, shedding coins for two minutes while it
   // does - which reads as the machine leaking for no reason.
   try {
-    const res = await fetch('pile.json?v=3');
+    const res = await fetch('pile.json?v=4');
     if (res.ok) pile = await res.json();
   } catch { /* fall back to the grid seed below */ }
 
@@ -98,30 +98,53 @@ function buildRenderer() {
   renderer.setClearColor(0x070a12);
 }
 
+/** A soft vertical wash behind the cabinet, so it does not float in a void. */
+function backdrop() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const g = c.getContext('2d').createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0,    '#0a2230');
+  g.addColorStop(0.55, '#071520');
+  g.addColorStop(1,    '#04090e');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function buildScene() {
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x070a12, 130, 260);
+  scene.background = backdrop();
+  scene.fog = new THREE.Fog(0x071118, 150, 300);
 
   camera = new THREE.PerspectiveCamera(50, 1, 1, 500);
 
-  scene.add(new THREE.HemisphereLight(0xaecbff, 0x10141f, 0.55));
+  // The first version lit this like a cave and everything came out brown.
+  // An arcade is a bright room full of coloured light sources, and the coins
+  // have to be the brightest thing on screen.
+  scene.add(new THREE.HemisphereLight(0x9fe4ff, 0x123540, 1.35));
 
-  const key = new THREE.DirectionalLight(0xfff2d6, 1.0);
-  key.position.set(14, 52, 30);
+  const key = new THREE.DirectionalLight(0xfff4e0, 1.55);
+  key.position.set(18, 54, 34);
   scene.add(key);
 
-  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.45);
-  rim.position.set(-24, 22, -30);
-  scene.add(rim);
+  const magenta = new THREE.DirectionalLight(COLOUR.neon, 0.85);
+  magenta.position.set(-36, 18, -8);
+  scene.add(magenta);
 
-  const marqueeLight = new THREE.PointLight(0xffc978, 0.9, 110, 2);
-  marqueeLight.position.set(0, 24, -16);
-  scene.add(marqueeLight);
+  const cyan = new THREE.DirectionalLight(COLOUR.neon2, 0.65);
+  cyan.position.set(36, 15, 8);
+  scene.add(cyan);
 
-  // a cool glow behind the drop board, so the coin reads against it
-  const boardLight = new THREE.PointLight(0x9fd0ff, 0.7, 70, 2);
-  boardLight.position.set(0, CFG.antlerY, CFG.chuteZ + 9);
-  scene.add(boardLight);
+  const field = new THREE.PointLight(0xfff0cf, 1.5, 95, 2);
+  field.position.set(0, 23, 8);
+  scene.add(field);
+
+  const board = new THREE.PointLight(COLOUR.neon2, 0.9, 60, 2);
+  board.position.set(0, CFG.antlerY, CFG.chuteZ + 8);
+  scene.add(board);
 }
 
 /**
@@ -142,12 +165,14 @@ function buildEnvironment() {
 
   env.add(new THREE.Mesh(
     new THREE.BoxGeometry(140, 110, 140),
-    new THREE.MeshBasicMaterial({ color: 0x161d2e, side: THREE.BackSide })));
+    new THREE.MeshBasicMaterial({ color: 0x2b3b50, side: THREE.BackSide })));
 
-  lit(0xfff0d2, 0,  50,  -8, 70, 2, 50);    // warm ceiling strip
-  lit(0x9ec4ff, 0,   8,  62, 80, 46, 2);    // cool fill from the front
-  lit(0xffffff, -56, 20, -6, 2, 30, 34);    // left highlight
-  lit(0xffd9a0, 56, 14,  -6, 2, 24, 34);    // right highlight, warmer
+  lit(0xffffff, 0,  50,  -8, 76, 5, 54);    // broad bright ceiling
+  lit(0xcfe6ff, 0,   8,  62, 86, 50, 2);    // cool fill from the front
+  lit(0xffffff, -56, 20, -6, 2, 36, 40);    // hard left highlight
+  lit(0xffdca8, 56, 14,  -6, 2, 30, 40);    // warm right highlight
+  lit(0xff6fae, -30, -6, -34, 26, 10, 2);   // magenta bounce off the cabinet
+  lit(0x5ff0f4,  30, -6, -34, 26, 10, 2);   // cyan bounce
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(env, 0.05).texture;
@@ -165,8 +190,9 @@ function material(kind) {
     tray:   { color: COLOUR.tray,   metalness: 0.55, roughness: 0.45 },
     pusher: { color: COLOUR.pusher, metalness: 0.70, roughness: 0.34 },
     chute:  { color: COLOUR.chute,  metalness: 0.45, roughness: 0.55 },
-    antler: { color: COLOUR.antler, metalness: 0.80, roughness: 0.30 },
-    peg:    { color: COLOUR.peg,    metalness: 0.90, roughness: 0.22 },
+    antler: { color: COLOUR.antler, metalness: 0.65, roughness: 0.28,
+              emissive: COLOUR.antler, emissiveIntensity: 0.35 },
+    peg:    { color: COLOUR.peg,    metalness: 0.90, roughness: 0.18 },
   }[kind];
 
   if (kind === 'glass') {
@@ -230,36 +256,97 @@ function buildCabinetMeshes() {
   scene.add(chuteMesh);
 }
 
-/** The furniture around the playfield: pillars, hood, marquee, floor. */
+/**
+ * The furniture around the playfield. Kept deliberately slim: the first
+ * version had pillars and a hood so big they took more of the frame than the
+ * machine did. Everything here is recorded in SHELL so the camera fit knows
+ * about it - the old pillars ran past the fitted box and got sliced off.
+ */
+const SHELL = [];
+
+function shellBox(c, h, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(h[0] * 2, h[1] * 2, h[2] * 2), mat);
+  m.position.set(c[0], c[1], c[2]);
+  scene.add(m);
+  SHELL.push({ c, h });
+  return m;
+}
+
+/** The marquee artwork: lettering on a lit panel, drawn at load. */
+function signTexture() {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 128;
+  const x = c.getContext('2d');
+
+  const g = x.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#ff5fa8');
+  g.addColorStop(1, '#c9166b');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 1024, 128);
+
+  x.fillStyle = 'rgba(255,255,255,0.14)';
+  x.fillRect(0, 0, 1024, 44);
+
+  x.font = '700 70px "Archivo", "Helvetica Neue", Arial, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillStyle = '#2b0a1b';
+  x.fillText('COIN PUSHER', 514, 70);
+  x.fillStyle = '#fff4fa';
+  x.fillText('COIN PUSHER', 512, 67);
+
+  x.strokeStyle = '#2de2e6';
+  x.lineWidth = 7;
+  x.strokeRect(4, 4, 1016, 120);
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 function buildCabinetShell() {
   const C = CFG;
   const body = new THREE.MeshStandardMaterial({
-    color: 0x10151f, metalness: 0.4, roughness: 0.55 });
+    color: 0x0b2029, metalness: 0.45, roughness: 0.5 });
 
-  for (const s of [-1, 1]) {
-    const pillar = new THREE.Mesh(new THREE.BoxGeometry(3, 56, 62), body);
-    pillar.position.set(s * (C.wallHalfW + 2.5), 10, -2);
-    scene.add(pillar);
+  const glow = colour => new THREE.MeshStandardMaterial({
+    color: colour, metalness: 0.1, roughness: 0.4,
+    emissive: colour, emissiveIntensity: 1.35 });
+
+  const panel = new THREE.MeshStandardMaterial({
+    color: COLOUR.panel, metalness: 0.3, roughness: 0.45,
+    emissive: COLOUR.panel, emissiveIntensity: 0.35 });
+
+  for (const side of [-1, 1]) {
+    const x = side * (C.wallHalfW + 2.0);
+    shellBox([x, 7, -2], [1.1, 15, 27], body);
+    // a light rail along the top edge of each side wall - cabinet trim, and
+    // it reads from the player's angle. The earlier strip sat down the side
+    // where the panel hid all but a sliver of it.
+    shellBox([side * (C.wallHalfW + 1.0), 8.2, -2], [0.45, 0.4, 26],
+             glow(side < 0 ? COLOUR.neon : COLOUR.neon2));
+    shellBox([x - side * 0.6, 3.0, -2], [0.3, 8.5, 26.5], panel);
   }
 
-  // clear of the drop board, which now runs up the back of the machine
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(40, 3, 18), body);
-  hood.position.set(0, 35, -8);
-  scene.add(hood);
+  // base plinth
+  shellBox([0, -8.5, -1], [C.wallHalfW + 3.2, 2.2, 28], body);
 
-  const marquee = new THREE.Mesh(
-    new THREE.BoxGeometry(36, 6, 1.4),
-    new THREE.MeshStandardMaterial({
-      color: 0x241634, metalness: 0.2, roughness: 0.5,
-      emissive: 0xff9c3c, emissiveIntensity: 0.85,
-    }));
-  marquee.position.set(0, 33.5, -17.2);
-  scene.add(marquee);
+  // A lit sign, not a coloured slab. Drawn into a canvas so the lettering is
+  // part of the texture and the whole thing glows as one piece.
+  shellBox([0, C.chuteTopY + 2.6, C.chuteZ - 2.6], [C.wallHalfW + 1.4, 2.5, 0.6], body);
+
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry((C.wallHalfW + 0.6) * 2, 3.6),
+    new THREE.MeshBasicMaterial({ map: signTexture(), transparent: true }));
+  sign.position.set(0, C.chuteTopY + 2.6, C.chuteZ - 1.95);
+  scene.add(sign);
+  SHELL.push({ c: [0, C.chuteTopY + 2.6, C.chuteZ - 1.95], h: [C.wallHalfW + 0.6, 1.8, 0.1] });
 
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(240, 2, 240),
-    new THREE.MeshStandardMaterial({ color: 0x080b12, metalness: 0.1, roughness: 0.9 }));
-  floor.position.set(0, -18, 0);
+    new THREE.BoxGeometry(260, 2, 260),
+    new THREE.MeshStandardMaterial({ color: 0x05131a, metalness: 0.1, roughness: 0.92 }));
+  floor.position.set(0, -11.6, 0);
   scene.add(floor);
 }
 
@@ -282,7 +369,16 @@ function contentCorners() {
   for (const b of cabinetBoxes()) add(b.c, b.h);
   for (const b of dropperBoxes()) add(b.c, b.h);
   for (const g of dropperPegs()) add(g.c, [g.r, g.r, g.r]);
-  lo[0] -= 3.5; hi[0] += 3.5;                    // the side pillars
+  // Height and depth take the furniture into account; width deliberately does
+  // not, so the side panels bleed off the edges instead of shrinking the
+  // machine to a model on a table.
+  for (const b of SHELL) {
+    for (const i of [1, 2]) {
+      lo[i] = Math.min(lo[i], b.c[i] - b.h[i]);
+      hi[i] = Math.max(hi[i], b.c[i] + b.h[i]);
+    }
+  }
+  lo[0] -= 1; hi[0] += 1;
 
   const corners = [];
   for (let i = 0; i < 8; i++) {
@@ -309,7 +405,10 @@ function onResize() {
   const tanV = Math.tan(vFov / 2);
   const tanH = Math.tan(vFov / 2) * camera.aspect;
 
-  const tilt = 0.55;
+  // A lower eye line. Looking steeply down turned the two decks into a flight
+  // of stairs; from here you look into the field the way you do at the real
+  // cabinet, and the decks read as one machine.
+  const tilt = 0.52;
   const fwd = new THREE.Vector3(0, -tilt, -1).normalize();   // camera to target
   const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
   const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
@@ -325,7 +424,7 @@ function onResize() {
       Math.abs(rel.dot(right)) / tanH - f,
       Math.abs(rel.dot(up)) / tanV - f);
   }
-  dist *= 1.03;
+  dist *= 1.02;
 
   camera.position.copy(target).addScaledVector(fwd, -dist);
   camera.lookAt(target);
@@ -339,7 +438,12 @@ function onResize() {
 function buildCoinMesh() {
   const geo = new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, CFG.coinT, 16);
   const mat = new THREE.MeshStandardMaterial({
-    color: COLOUR.coin, metalness: 1.0, roughness: 0.28, envMapIntensity: 1.15,
+    color: COLOUR.coin,
+    metalness: 0.82,          // not 1.0: at full metalness the diffuse colour
+    roughness: 0.22,          // is ignored and unlit coins render black-brown
+    envMapIntensity: 2.4,
+    emissive: COLOUR.coin,
+    emissiveIntensity: 0.07,  // keeps coins buried in the pile from going dead
   });
   coinMesh = new THREE.InstancedMesh(geo, mat, CFG.maxCoins);
   coinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

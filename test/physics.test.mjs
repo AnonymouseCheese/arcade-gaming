@@ -10,8 +10,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js?v=3';
-import * as P from '../physics.js?v=3';
+import { CFG } from '../config.js?v=4';
+import * as P from '../physics.js?v=4';
 
 await RAPIER.init();
 
@@ -24,7 +24,9 @@ const ok = (name, cond, detail = '') => {
 /* ---------------- 1. the layout ---------------- */
 
 const cap = P.seedCapacity();
-ok('seed layout holds a full machine', cap >= 600, `${cap} coins`);
+// The cabinet was narrowed deliberately to suit a portrait screen, so this
+// is lower than it was. It still has to hold a convincingly full machine.
+ok('seed layout holds a full machine', cap >= 520, `${cap} coins`);
 
 ok('every seeded coin starts inside the cabinet',
    P.seedLayout(400).every(p =>
