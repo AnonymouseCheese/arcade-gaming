@@ -1,0 +1,5 @@
+# Local only - not part of the game.
+reference/
+
+# scratch
+*.local.*

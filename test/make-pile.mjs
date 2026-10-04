@@ -15,8 +15,8 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as RAPIER from '../vendor/rapier.es.js';
-import { CFG } from '../config.js?v=5';
-import * as P from '../physics.js?v=5';
+import { CFG } from '../config.js?v=6';
+import * as P from '../physics.js?v=6';
 await RAPIER.init();
 
 const HZ = 30;

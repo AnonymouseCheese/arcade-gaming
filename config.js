@@ -118,18 +118,23 @@ export const CFG = {
 };
 
 export const COLOUR = {
-  coin:   0xffc83d,   // gold
-  deck:   0x1a6b86,   // The cabinet is lit, not dark. An arcade machine is the
-  wall:   0x2e8fad,   // brightest thing in a dim room, so these surfaces are
-  trim:   0x1d6076,   // bright teal rather than the near-black they started as.
-  pusher: 0x47b4cf,
-  tray:   0x15455a,
-  chute:  0x2a7e97,
-  glass:  0xcff2fb,
-  peg:    0xf2fbff,
-  antler: 0xff8a45,
-  panel:  0x2fd0e8,   // backlit side panels
-  neon:   0xff4d9b,   // magenta
-  neon2:  0x45f0f4,   // cyan
-  body:   0x123a4d,   // the cabinet shell itself, behind the lit panels
+  /* Chrome and electric blue, and the medals are SILVER - not the gold on a
+   * teal cabinet this started as. */
+  coin:   0xcfd6de,   // silver medal
+  deck:   0x8793a3,   // polished stainless playfield
+  wall:   0x7b8798,
+  trim:   0x2f3c5e,
+  pusher: 0xb4c0ce,   // chrome pusher plate
+  tray:   0x1a2234,
+  chute:  0x1d2d63,   // the feature board behind the pins
+  glass:  0xcfe8ff,
+  peg:    0xeaf4ff,
+  antler: 0x6fd2ff,
+
+  body:   0x1e2d55,   // cabinet shell
+  panel:  0x2a53c8,   // backlit side art
+  neon:   0xff3da1,   // magenta
+  neon2:  0x2ad4ff,   // cyan
+  violet: 0x7b3fe4,   // the portal and board art
+  badge:  0xffc63d,   // the jackpot hexagons
 };

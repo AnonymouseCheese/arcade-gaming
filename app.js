@@ -1,10 +1,10 @@
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG, COLOUR } from './config.js?v=5';
+import { CFG, COLOUR } from './config.js?v=6';
 import {
   cabinetBoxes, pusherSlabs, dropperBoxes, dropperPegs, createMachine,
-} from './physics.js?v=5';
-import { createAudio } from './audio.js?v=5';
+} from './physics.js?v=6';
+import { createAudio } from './audio.js?v=6';
 
 /* ------------------------------------------------------------------ *
  *  Coin pusher
@@ -47,7 +47,7 @@ async function init() {
   // into shape on the player's time, shedding coins for two minutes while it
   // does - which reads as the machine leaking for no reason.
   try {
-    const res = await fetch('pile.json?v=5');
+    const res = await fetch('pile.json?v=6');
     if (res.ok) pile = await res.json();
   } catch { /* fall back to the grid seed below */ }
 
@@ -198,13 +198,14 @@ const MATS = {};
 function material(kind) {
   if (MATS[kind]) return MATS[kind];
   const spec = {
-    deck:   { color: COLOUR.deck,   metalness: 0.15, roughness: 0.55,
-              emissive: COLOUR.deck, emissiveIntensity: 0.18 },
-    wall:   { color: COLOUR.wall,   metalness: 0.15, roughness: 0.6,
-              emissive: COLOUR.wall, emissiveIntensity: 0.22 },
-    trim:   { color: COLOUR.trim,   metalness: 0.25, roughness: 0.6 },
-    tray:   { color: COLOUR.tray,   metalness: 0.45, roughness: 0.45 },
-    pusher: { color: COLOUR.pusher, metalness: 0.55, roughness: 0.3 },
+    // Stainless, but not mirror-finish. A near-mirror is lit almost entirely
+    // by what it reflects, and the environment here is a small synthetic room,
+    // so metalness at 0.92 rendered the whole cabinet black.
+    deck:   { color: COLOUR.deck,   metalness: 0.55, roughness: 0.28, envMapIntensity: 1.6 },
+    wall:   { color: COLOUR.wall,   metalness: 0.45, roughness: 0.35, envMapIntensity: 1.5 },
+    trim:   { color: COLOUR.trim,   metalness: 0.35, roughness: 0.5 },
+    tray:   { color: COLOUR.tray,   metalness: 0.4,  roughness: 0.45 },
+    pusher: { color: COLOUR.pusher, metalness: 0.7,  roughness: 0.2,  envMapIntensity: 1.7 },
     chute:  { color: COLOUR.chute,  metalness: 0.45, roughness: 0.55 },
     antler: { color: COLOUR.antler, metalness: 0.65, roughness: 0.28,
               emissive: COLOUR.antler, emissiveIntensity: 0.35 },
@@ -260,6 +261,7 @@ function buildCabinetMeshes() {
   scene.add(pusherGroup);
 
   buildCabinetShell();
+  buildFeatureBoard();
 
   chuteMesh = new THREE.Mesh(
     new THREE.ConeGeometry(0.9, 2.0, 12),
@@ -288,32 +290,42 @@ function shellBox(c, h, mat) {
   return m;
 }
 
-/** The marquee artwork: lettering on a lit panel, drawn at load. */
+/**
+ * The marquee. Chrome lettering on a dark plate. The name is a placeholder.
+ */
+const GAME_NAME = 'VORTEX';
+
 function signTexture() {
   const c = document.createElement('canvas');
-  c.width = 1024; c.height = 128;
+  c.width = 1024; c.height = 160;
   const x = c.getContext('2d');
 
-  const g = x.createLinearGradient(0, 0, 0, 128);
-  g.addColorStop(0, '#ff5fa8');
-  g.addColorStop(1, '#c9166b');
-  x.fillStyle = g;
-  x.fillRect(0, 0, 1024, 128);
+  x.fillStyle = '#0b1430';
+  x.fillRect(0, 0, 1024, 160);
 
-  x.fillStyle = 'rgba(255,255,255,0.14)';
-  x.fillRect(0, 0, 1024, 44);
+  const edge = x.createLinearGradient(0, 0, 0, 160);
+  edge.addColorStop(0, '#2ad4ff');
+  edge.addColorStop(1, '#7b3fe4');
+  x.strokeStyle = edge;
+  x.lineWidth = 6;
+  x.strokeRect(3, 3, 1018, 154);
 
-  x.font = '700 70px "Archivo", "Helvetica Neue", Arial, sans-serif';
+  x.font = '700 92px "Archivo", "Helvetica Neue", Arial, sans-serif';
   x.textAlign = 'center';
   x.textBaseline = 'middle';
-  x.fillStyle = '#2b0a1b';
-  x.fillText('COIN PUSHER', 514, 70);
-  x.fillStyle = '#fff4fa';
-  x.fillText('COIN PUSHER', 512, 67);
 
-  x.strokeStyle = '#2de2e6';
-  x.lineWidth = 7;
-  x.strokeRect(4, 4, 1016, 120);
+  const chrome = x.createLinearGradient(0, 30, 0, 130);
+  chrome.addColorStop(0,    '#ffffff');
+  chrome.addColorStop(0.45, '#9fb6d4');
+  chrome.addColorStop(0.5,  '#44608a');
+  chrome.addColorStop(0.55, '#d7e6f7');
+  chrome.addColorStop(1,    '#8fa6c4');
+
+  x.lineWidth = 8;
+  x.strokeStyle = '#1ea6d8';
+  x.strokeText(GAME_NAME, 512, 84);
+  x.fillStyle = chrome;
+  x.fillText(GAME_NAME, 512, 82);
 
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -358,14 +370,17 @@ function buildCabinetShell() {
 
   // A lit sign, not a coloured slab. Drawn into a canvas so the lettering is
   // part of the texture and the whole thing glows as one piece.
-  shellBox([0, C.chuteTopY + 2.6, C.chuteZ - 2.6], [C.wallHalfW + 1.4, 2.5, 0.6], body);
+  // Clear of the arch. At the old height the two overlapped and the lettering
+  // came out tangled in the arch tube.
+  const signY = 33;
+  shellBox([0, signY, C.chuteZ - 2.6], [C.wallHalfW + 2.6, 3.0, 0.6], body);
 
   const sign = new THREE.Mesh(
-    new THREE.PlaneGeometry((C.wallHalfW + 0.6) * 2, 3.6),
+    new THREE.PlaneGeometry((C.wallHalfW + 1.8) * 2, 4.6),
     new THREE.MeshBasicMaterial({ map: signTexture(), transparent: true }));
-  sign.position.set(0, C.chuteTopY + 2.6, C.chuteZ - 1.95);
+  sign.position.set(0, signY, C.chuteZ - 1.95);
   scene.add(sign);
-  SHELL.push({ c: [0, C.chuteTopY + 2.6, C.chuteZ - 1.95], h: [C.wallHalfW + 0.6, 1.8, 0.1] });
+  SHELL.push({ c: [0, signY, C.chuteZ - 1.95], h: [C.wallHalfW + 1.8, 2.3, 0.1] });
 
   // a slim tube under the hood, read as the source of the field light
   shellBox([0, C.chuteTopY - 1.4, 2], [C.wallHalfW - 2, 0.16, 0.5], glow(LED.tube));
@@ -429,6 +444,134 @@ function contentCorners() {
 
 let BOUNDS = null;
 
+/**
+ * The feature board: the illuminated arch above the playfield, the jackpot
+ * badges around it, and the portal at its centre - most of the cabinet's
+ * silhouette, far more of it than the coins.
+ */
+function boardArt() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const x = c.getContext('2d');
+
+  const g = x.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0,   '#1b2f8c');
+  g.addColorStop(0.5, '#2440a8');
+  g.addColorStop(1,   '#4a2497');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 512, 512);
+
+  // a receding floor grid
+  x.strokeStyle = 'rgba(150, 235, 255, 0.75)';
+  x.lineWidth = 4;
+  for (let i = -8; i <= 8; i++) {
+    x.beginPath();
+    x.moveTo(256 + i * 16, 512);
+    x.lineTo(256 + i * 90, 300);
+    x.stroke();
+  }
+  for (let i = 0; i < 7; i++) {
+    const y = 512 - Math.pow(i / 7, 1.8) * 212;
+    x.beginPath();
+    x.moveTo(0, y); x.lineTo(512, y); x.stroke();
+  }
+
+  x.fillStyle = 'rgba(190, 230, 255, 0.16)';
+  x.beginPath(); x.arc(256, 250, 175, 0, Math.PI * 2); x.fill();
+
+  // a horizon band, so the board reads as a place rather than a panel
+  const h = x.createLinearGradient(0, 270, 0, 330);
+  h.addColorStop(0, 'rgba(120,220,255,0)');
+  h.addColorStop(0.5, 'rgba(160,240,255,0.55)');
+  h.addColorStop(1, 'rgba(120,220,255,0)');
+  x.fillStyle = h;
+  x.fillRect(0, 270, 512, 60);
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function buildFeatureBoard() {
+  const C = CFG;
+  const cz = C.chuteZ;
+  const archY = 16, archR = 14.2;      // wider than the board, so it frames it
+
+  const lit = (colour, strength) => new THREE.MeshStandardMaterial({
+    color: colour, metalness: 0.3, roughness: 0.35,
+    emissive: colour, emissiveIntensity: strength });
+
+  // the printed board the pins stand on
+  const art = new THREE.Mesh(
+    new THREE.PlaneGeometry(C.chuteHalfW * 2 + 2, C.chuteTopY - C.chuteExitY),
+    new THREE.MeshStandardMaterial({
+      map: boardArt(), metalness: 0.1, roughness: 0.6,
+      emissive: 0xffffff, emissiveMap: boardArt(), emissiveIntensity: 0.95 }));
+  art.position.set(0, (C.chuteTopY + C.chuteExitY) / 2, cz - 0.5);
+  scene.add(art);
+
+  // the arch
+  const arch = new THREE.Mesh(
+    new THREE.TorusGeometry(archR, 0.85, 8, 60, Math.PI),
+    lit(COLOUR.violet, 0.85));
+  arch.position.set(0, archY, cz - 0.55);
+  scene.add(arch);
+  SHELL.push({ c: [0, archY + archR / 2, cz - 1.1], h: [archR + 1, archR / 2 + 1, 1] });
+
+  const archInner = new THREE.Mesh(
+    new THREE.TorusGeometry(archR - 1.3, 0.3, 6, 60, Math.PI),
+    new THREE.MeshBasicMaterial({ color: 0x1ea6d8 }));
+  archInner.position.set(0, archY, cz - 0.45);
+  scene.add(archInner);
+
+  // jackpot badges around the arch
+  const hex = new THREE.CylinderGeometry(1.5, 1.5, 0.45, 6);
+  hex.rotateX(Math.PI / 2);
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI * (0.08 + 0.84 * (i / 6));
+    const b = new THREE.Mesh(hex, lit(COLOUR.badge, 0.8));
+    b.position.set(Math.cos(a) * archR, archY + Math.sin(a) * archR, cz - 0.2);
+    b.rotation.z = a - Math.PI / 2;
+    scene.add(b);
+  }
+
+  // the portal at the centre of the board
+  const portal = new THREE.Mesh(
+    new THREE.TorusGeometry(3.4, 0.5, 10, 40),
+    lit(COLOUR.neon2, 1.0));
+  portal.position.set(0, 17.5, cz - 0.3);
+  scene.add(portal);
+
+  const eye = new THREE.Mesh(
+    new THREE.CircleGeometry(3.0, 36),
+    new THREE.MeshBasicMaterial({ color: 0x080c1c }));
+  eye.position.set(0, 17.5, cz - 0.34);
+  scene.add(eye);
+
+  const swirl = new THREE.Mesh(
+    new THREE.RingGeometry(1.5, 2.9, 36),
+    new THREE.MeshBasicMaterial({ color: 0x2f1b6b }));
+  swirl.position.set(0, 17.5, cz - 0.33);
+  scene.add(swirl);
+
+  // the three lamps that have to light up together
+  const lampColour = [0xd63b3b, 0xdcc23a, 0x47c25a];
+  for (let i = 0; i < 3; i++) {
+    const lamp = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.5, 1.5, 0.5, 24),
+      lit(lampColour[i], 0.9));
+    lamp.rotation.x = Math.PI / 2;
+    lamp.position.set((i - 1) * 4.2, C.chuteExitY - 1.4, cz + 3);
+    scene.add(lamp);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(1.75, 0.22, 8, 24),
+      new THREE.MeshStandardMaterial({ color: COLOUR.pusher, metalness: 0.9, roughness: 0.2 }));
+    rim.position.copy(lamp.position);
+    scene.add(rim);
+  }
+  SHELL.push({ c: [0, C.chuteExitY - 1.4, cz + 3], h: [7, 2, 1] });
+}
+
 function onResize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
@@ -474,12 +617,12 @@ function onResize() {
 function buildCoinMesh() {
   const geo = new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, CFG.coinT, 16);
   const mat = new THREE.MeshStandardMaterial({
-    color: COLOUR.coin,
-    metalness: 0.82,          // not 1.0: at full metalness the diffuse colour
-    roughness: 0.22,          // is ignored and unlit coins render black-brown
-    envMapIntensity: 2.4,
+    color: COLOUR.coin,       // silver medal
+    metalness: 0.9,
+    roughness: 0.28,
+    envMapIntensity: 2.8,
     emissive: COLOUR.coin,
-    emissiveIntensity: 0.07,  // keeps coins buried in the pile from going dead
+    emissiveIntensity: 0.05,  // keeps coins buried in the pile from going dead
   });
   coinMesh = new THREE.InstancedMesh(geo, mat, CFG.maxCoins);
   coinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
