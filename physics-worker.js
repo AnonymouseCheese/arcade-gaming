@@ -15,9 +15,9 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=9';
-import { machineFromLayout } from './machine.js?v=9';
-import { createField, snapshot } from './field-physics.js?v=9';
+import { CFG } from './config.js?v=10';
+import { machineFromLayout } from './machine.js?v=10';
+import { createField, snapshot } from './field-physics.js?v=10';
 
 let field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
@@ -27,7 +27,7 @@ self.onmessage = async e => {
   if (m.type === 'init') {
     await RAPIER.init();
     M = machineFromLayout(m.layout, { stroke: CFG.stroke });
-    field = createField(RAPIER, M, { hz: m.opts?.hz ?? 30, shape: 'box', freeze: m.opts?.freeze ?? false,
+    field = createField(RAPIER, M, { hz: m.opts?.hz ?? 30, shape: 'box', freeze: m.opts?.freeze ?? false, shot: m.opts?.shot,
                                      freezeMode: m.opts?.freezeMode });
     if (m.pile) field.seedFrom(m.pile);
     clockStart = performance.now();

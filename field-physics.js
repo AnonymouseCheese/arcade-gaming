@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=9';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=9';
+import { CFG } from './config.js?v=10';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=10';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -46,10 +46,15 @@ const UNSTICK = 0.03;
 // quick stream, each a little off straight, up or down and to either side,
 // the way a real hopper does; most land on the side pusher below it. A ball
 // outlet lets a ball roll gently out, so balls gather by the outer wall.
-const SHOT_GAP = 0.13;       // s between coins out of one coin supply
-const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 65);           // cm/s, give or take a fifth: 84% land on the pusher
+const SHOT_GAP = +(globalThis.SHOT_GAP ?? 0.4);              // s between coins out of one coin supply: about 2.5 a second
+const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 65);           // cm/s, give or take 15%: ~83% land on the pusher
 const SHOT_UP = [-8, +(globalThis.SHOT_UP ?? 18)];           // degrees above level, lowest..highest
-const SHOT_SIDE = 12;        // degrees either side of straight out
+const SHOT_SIDE = +(globalThis.SHOT_SIDE ?? 30);             // degrees either side of straight out: a 60 degree fan; at 40 most still landed mid-pusher
+// Some coins catch the outlet's lip on the way out and just drop, by the wall.
+const SHOT_DRIBBLE = +(globalThis.SHOT_DRIBBLE ?? 0.2);       // share of coins
+const DRIBBLE_SPEED = [8, 22];                                // cm/s
+// ...and they come out every which way: on their edge rolling, flat, slanted.
+const SHOT_ON_EDGE = 0.25, SHOT_SLANT = 0.25;                 // shares; the rest come out flat
 const BALL_R = 2.2;          // cm: just under the ball outlet's 4.8 cm opening
 const BALL_DENSITY = 0.45;   // a ball weighs about five coins
 const BALL_ROLL = 6;         // cm/s it rolls out at
@@ -416,6 +421,9 @@ export function createField(RAPIER, M, opts = {}) {
   const slot = [];                         // coins dropped in, waiting for the wipers
   const D = M.zones.drop;
   const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
+  // the coin supply's shot - the defaults above, or what the game asks for
+  const shot = { speed: opts.shot?.speed ?? SHOT_SPEED, side: opts.shot?.side ?? SHOT_SIDE,
+                 gap: opts.shot?.gap ?? SHOT_GAP, dribble: opts.shot?.dribble ?? SHOT_DRIBBLE };
   const ballOutlets = (M.outlets || []).filter(o => o.kind === 'ball');
   const shots = [];                        // coins due out of a coin supply
   /* ---- big balls: a small pool of spheres, made once ---- */
@@ -555,7 +563,7 @@ export function createField(RAPIER, M, opts = {}) {
 
     /** Fire every coin supply: n coins out of each, one after another. */
     supply(n = 10, onWake) {
-      for (const o of coinOutlets) for (let i = 0; i < n; i++) shots.push({ o, at: f.elapsed + i * SHOT_GAP + Math.random() * 0.04, onWake });
+      for (const o of coinOutlets) for (let i = 0; i < n; i++) shots.push({ o, at: f.elapsed + i * shot.gap + Math.random() * shot.gap * 0.2, onWake });
       return coinOutlets.length * n;
     },
 
@@ -699,16 +707,38 @@ export function createField(RAPIER, M, opts = {}) {
         if (shots[i].at > f.elapsed) continue;
         const { o, onWake } = shots[i];
         shots.splice(i, 1);
-        const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * CFG.coinR) * 0.7;
-        const up = (SHOT_UP[0] + Math.random() * (SHOT_UP[1] - SHOT_UP[0])) * DEG;
-        const side = (Math.random() - 0.5) * 2 * SHOT_SIDE * DEG;
-        const sp = SHOT_SPEED * (0.8 + Math.random() * 0.4), flat = sp * Math.cos(up);
+        const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * CFG.coinR) * 0.9;     // anywhere across the mouth
+        const dribble = Math.random() < shot.dribble;
+        const up = (dribble ? -30 + Math.random() * 30 : SHOT_UP[0] + Math.random() * (SHOT_UP[1] - SHOT_UP[0])) * DEG;
+        const side = (Math.random() - 0.5) * 2 * (dribble ? shot.side * 1.25 : shot.side) * DEG;
+        const sp = dribble ? DRIBBLE_SPEED[0] + Math.random() * (DRIBBLE_SPEED[1] - DRIBBLE_SPEED[0])
+                           : shot.speed * (0.85 + Math.random() * 0.3);
+        const flat = sp * Math.cos(up);
         const hx = o.dir[0] * Math.cos(side) + o.across[0] * Math.sin(side);
         const hz = o.dir[2] * Math.cos(side) + o.across[2] * Math.sin(side);
         const c = f.drop(o.mouth[0] + o.dir[0] * (CFG.coinR + 0.2) + o.across[0] * off, o.mouth[1],
                          o.mouth[2] + o.dir[2] * (CFG.coinR + 0.2) + o.across[2] * off,
                          { x: hx * flat, y: sp * Math.sin(up), z: hz * flat }, onWake);
-        if (c) c.body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 8 }, true);
+        if (c) {
+          // round while it flies, so one on its edge can roll; square again once it lies flat
+          if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; }
+          c.outAt = f.elapsed;
+          const style = Math.random(), len = Math.hypot(hx, hz) || 1, ax = -hz / len, az = hx / len;
+          if (style < SHOT_ON_EDGE) {
+            // on its edge, its face side-on to the way it is going, spinning to roll that way
+            const s = Math.SQRT1_2, w = -flat / CFG.coinR;
+            c.body.setRotation({ x: az * s, y: 0, z: -ax * s, w: s }, true);
+            c.body.setAngvel({ x: ax * w, y: (Math.random() - 0.5) * 2, z: az * w }, true);
+          } else if (style < SHOT_ON_EDGE + SHOT_SLANT) {
+            // slanted, any way round, tumbling
+            const tilt = (25 + Math.random() * 50) * DEG, turn = Math.random() * Math.PI * 2;
+            const ux = Math.cos(turn), uz = Math.sin(turn);
+            c.body.setRotation({ x: ux * Math.sin(tilt / 2), y: 0, z: uz * Math.sin(tilt / 2), w: Math.cos(tilt / 2) }, true);
+            c.body.setAngvel({ x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 10 }, true);
+          } else {
+            c.body.setAngvel({ x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 4 }, true);
+          }
+        }
       }
 
       // balls: counted once they drop into the payout area, then cleared
@@ -882,7 +912,8 @@ export function createField(RAPIER, M, opts = {}) {
           // little to one side, so it tips and rolls off as a real coin does.
           // (A spin turns it about its middle, and half the time drove it back
           // into the panel, which held it up.)
-          else if (onEdge && f.elapsed - c.outAt > STANDING_TIP && t.y < ch.exitY - 1) {
+          else if (onEdge && f.elapsed - c.outAt > STANDING_TIP && v2 < 225 &&
+                   (t.y < ch.exitY - 1 || t.x < ch.x0 || t.x > ch.x1)) {
             const m = c.collider.mass();
             c.body.applyImpulseAtPoint({ x: (Math.random() - 0.5) * m * 8, y: 0, z: m * 9 },
                                        { x: t.x, y: t.y + CFG.coinR * 0.9, z: t.z }, true);
