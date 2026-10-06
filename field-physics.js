@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=10';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=10';
+import { CFG } from './config.js?v=11';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=11';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -46,7 +46,7 @@ const UNSTICK = 0.03;
 // quick stream, each a little off straight, up or down and to either side,
 // the way a real hopper does; most land on the side pusher below it. A ball
 // outlet lets a ball roll gently out, so balls gather by the outer wall.
-const SHOT_GAP = +(globalThis.SHOT_GAP ?? 0.4);              // s between coins out of one coin supply: about 2.5 a second
+const SHOT_GAP = +(globalThis.SHOT_GAP ?? 1 / 3);            // s between coins out of one coin supply: 3 a second
 const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 65);           // cm/s, give or take 15%: ~83% land on the pusher
 const SHOT_UP = [-8, +(globalThis.SHOT_UP ?? 18)];           // degrees above level, lowest..highest
 const SHOT_SIDE = +(globalThis.SHOT_SIDE ?? 30);             // degrees either side of straight out: a 60 degree fan; at 40 most still landed mid-pusher
@@ -425,7 +425,8 @@ export function createField(RAPIER, M, opts = {}) {
   const shot = { speed: opts.shot?.speed ?? SHOT_SPEED, side: opts.shot?.side ?? SHOT_SIDE,
                  gap: opts.shot?.gap ?? SHOT_GAP, dribble: opts.shot?.dribble ?? SHOT_DRIBBLE };
   const ballOutlets = (M.outlets || []).filter(o => o.kind === 'ball');
-  const shots = [];                        // coins due out of a coin supply
+  // each coin supply's queue: coins still to come out, and when the next one is due
+  const supplies = coinOutlets.map(o => ({ o, left: 0, next: 0, onWake: null }));
   /* ---- big balls: a small pool of spheres, made once ---- */
   const balls = [];
   for (let i = 0; i < MAX_BALLS; i++) {
@@ -437,6 +438,7 @@ export function createField(RAPIER, M, opts = {}) {
     balls.push({ body, collider, slot: i, live: false, inAt: 0 });
   }
   const parkBall = b => {
+    if (b.emerge) { b.body.setBodyType(RAPIER.RigidBodyType.Dynamic, false); b.emerge = null; }
     b.body.setEnabled(false);
     b.body.setTranslation({ x: 0, y: -700 - b.slot * 10, z: 0 }, false);
     b.live = false;
@@ -501,7 +503,8 @@ export function createField(RAPIER, M, opts = {}) {
   const f = {
     world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
     wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0,
-    balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],     // coins through each wheel; out of each of the board's 7 ways
+    balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],
+    supplyLeft: () => supplies.map(q => q.left),        // coins still to come out of each coin supply     // coins through each wheel; out of each of the board's 7 ways
     elapsed: 0, won: 0, lost: 0, frozen: 0, thaws: 0, freezes: 0, moving: 0, why: {}, nudges: 0, rescues: 0, lifts: 0, rescueLog: [], guards,
 
     setRate(newHz) { world.timestep = 1 / newHz; },
@@ -563,8 +566,14 @@ export function createField(RAPIER, M, opts = {}) {
 
     /** Fire every coin supply: n coins out of each, one after another. */
     supply(n = 10, onWake) {
-      for (const o of coinOutlets) for (let i = 0; i < n; i++) shots.push({ o, at: f.elapsed + i * shot.gap + Math.random() * shot.gap * 0.2, onWake });
-      return coinOutlets.length * n;
+      // pressed again while it is still going: more coins in the same queue,
+      // not a second stream alongside it
+      for (const q of supplies) {
+        if (!q.left) q.next = f.elapsed;
+        q.left += n;
+        if (onWake) q.onWake = onWake;
+      }
+      return supplies.length * n;
     },
 
     /** One ball out of every ball outlet, rolling gently out of it. */
@@ -574,14 +583,19 @@ export function createField(RAPIER, M, opts = {}) {
         const b = balls.find(x => !x.live);
         if (!b) break;
         const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * BALL_R) * 0.6;
-        const x = o.mouth[0] + o.dir[0] * (BALL_R + 0.15) + o.across[0] * off;
-        const z = o.mouth[2] + o.dir[2] * (BALL_R + 0.15) + o.across[2] * off;
-        b.body.setTranslation({ x, y: o.bottom + BALL_R + 0.05, z }, true);
+        // It starts hidden inside the outlet and rolls out of its mouth on a
+        // set path - inside a solid block the physics would fling it out -
+        // then carries on under the physics at the same speed and spin.
+        const inside = BALL_R + 0.1, clear = BALL_R + 0.15;
+        const x = o.mouth[0] - o.dir[0] * inside + o.across[0] * off;
+        const z = o.mouth[2] - o.dir[2] * inside + o.across[2] * off;
+        const y = o.bottom + BALL_R + 0.05;
+        b.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+        b.body.setTranslation({ x, y, z }, true);
         b.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-        const v = BALL_ROLL * (0.7 + Math.random() * 0.6), wob = (Math.random() - 0.5) * 2;
-        b.body.setLinvel({ x: o.dir[0] * v + o.across[0] * wob, y: 0, z: o.dir[2] * v + o.across[2] * wob }, true);
-        b.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
         b.body.setEnabled(true);
+        const v = BALL_ROLL * (0.7 + Math.random() * 0.6), wob = (Math.random() - 0.5) * 2;
+        b.emerge = { o, x, y, z, v, wob, dist: inside + clear, t0: f.elapsed };
         b.live = true;
         b.inAt = 0;
         if (onWake) onWake(b);
@@ -697,16 +711,34 @@ export function createField(RAPIER, M, opts = {}) {
         p.z = (1 - Math.cos(f.elapsed / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
         p.body.setNextKinematicTranslation({ x: 0, y: 0, z: p.z });
       }
+      for (const b of balls) {
+        if (!b.live || !b.emerge) continue;
+        const E = b.emerge, d = E.o.dir, s = Math.min(E.dist, (f.elapsed - E.t0) * E.v);
+        const ax = d[2], az = -d[0];                  // rolls about the level line across its path
+        if (s < E.dist) {
+          const th = s / BALL_R / 2;
+          b.body.setNextKinematicTranslation({ x: E.x + d[0] * s, y: E.y, z: E.z + d[2] * s });
+          b.body.setNextKinematicRotation({ x: ax * Math.sin(th), y: 0, z: az * Math.sin(th), w: Math.cos(th) });
+        } else {
+          b.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+          b.body.setLinvel({ x: d[0] * E.v + E.o.across[0] * E.wob, y: 0, z: d[2] * E.v + E.o.across[2] * E.wob }, true);
+          // only a little of its roll goes with it: the full spin carried balls
+          // away from the outer wall once they landed (8 cm out, not 4)
+          b.body.setAngvel({ x: ax * E.v / BALL_R * 0.2, y: 0, z: az * E.v / BALL_R * 0.2 }, true);
+          b.emerge = null;
+        }
+      }
       const wa = wiperAngle();
       for (const g of guards) g.body.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(wa / 2), w: Math.cos(wa / 2) });
       world.step(events);
       stepTowers(onCollected);
 
       // coin supplies: each coin that is due goes out now, a little off straight
-      for (let i = shots.length - 1; i >= 0; i--) {
-        if (shots[i].at > f.elapsed) continue;
-        const { o, onWake } = shots[i];
-        shots.splice(i, 1);
+      for (const q of supplies) {
+        if (!q.left || q.next > f.elapsed) continue;
+        const { o, onWake } = q;
+        q.left--;
+        q.next = f.elapsed + shot.gap * (0.9 + Math.random() * 0.2);
         const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * CFG.coinR) * 0.9;     // anywhere across the mouth
         const dribble = Math.random() < shot.dribble;
         const up = (dribble ? -30 + Math.random() * 30 : SHOT_UP[0] + Math.random() * (SHOT_UP[1] - SHOT_UP[0])) * DEG;
@@ -1001,7 +1033,7 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice(), ballsIn: f.ballsIn },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft() },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];

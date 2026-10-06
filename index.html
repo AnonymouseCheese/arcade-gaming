@@ -53,10 +53,10 @@
 <script type="module">
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=10';
-import { machineFromLayout } from './machine.js?v=10';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=10';
-import { createAudio } from './audio.js?v=10';
+import { CFG } from './config.js?v=11';
+import { machineFromLayout } from './machine.js?v=11';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=11';
+import { createAudio } from './audio.js?v=11';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -91,7 +91,7 @@ const USE_WORKER = q.get('worker') !== '0';
 // The coin supply's shot can be tried from the link, e.g. ?arc=60&rate=2.5
 //   arc      degrees the coins fan over (40 = 20 either side)
 //   speed    cm/s out of the mouth
-//   rate     coins a second
+//   rate     coins a second (3 unless set)
 //   dribble  % that just drop out by the wall
 const num = k => (q.has(k) && Number.isFinite(+q.get(k)) ? +q.get(k) : undefined);
 const SHOT = { side: num('arc') !== undefined ? num('arc') / 2 : undefined, speed: num('speed'),
@@ -387,7 +387,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=10', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=11', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });

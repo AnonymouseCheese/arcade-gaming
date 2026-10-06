@@ -15,9 +15,9 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=10';
-import { machineFromLayout } from './machine.js?v=10';
-import { createField, snapshot } from './field-physics.js?v=10';
+import { CFG } from './config.js?v=11';
+import { machineFromLayout } from './machine.js?v=11';
+import { createField, snapshot } from './field-physics.js?v=11';
 
 let field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
