@@ -25,6 +25,7 @@ import { coinCollider } from './physics.js?v=6';
  *  clatters where you can see it, and the rest simply waits its turn.
  * ------------------------------------------------------------------ */
 
+const CHUTE_SIDE = +(globalThis.BOARD_SIDE ?? 70);   // cm/s - the fastest a coin may go sideways in the box
 const CHUTE_SPEED = 45;   // cm/s - the fastest a coin may fall inside the drop box
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
@@ -39,6 +40,8 @@ const ROUND_AT_MOST = 10;        // s after leaving the box: square again, unles
 const STANDING_TIP = 0.6;        // s balanced on its rim after landing, then the machine's shake tips it
 const SURFACE_DEPTH = 2.4;  // cm - pressed less than this into a surface: lift it back on top
 const LANDING_SPEED = 20;  // cm/s - from the bottom of the box down onto the pusher
+const PIN_BOUNCE = 0.35;  // the board's pins are livelier than anything else
+const UNSTICK = 0.03;     // cm: overlap a coin in the board may have before it is put back out
 const CHUTE_STUCK = 3;    // s - in the box this long and it is stuck: flick it. The wipers
                           // keep coins moving; 1.2 s (the old chute's) flicked coins that
                           // were only drifting slowly past them
@@ -88,6 +91,7 @@ export function createField(RAPIER, M, opts = {}) {
   const freeze  = opts.freeze ?? false;
   const mode    = opts.freezeMode ?? 'creep';
   const max     = opts.maxCoins ?? 1400;
+  const boardFall = opts.boardFall ?? CHUTE_SPEED;   // cm/s, the fastest a coin falls in the drop box
   const period  = opts.period ?? CFG.period;
 
   const world = new RAPIER.World({ x: 0, y: CFG.gravity, z: 0 });
@@ -103,7 +107,9 @@ export function createField(RAPIER, M, opts = {}) {
     kindOf.set(world.createCollider(desc.setFriction(mu).setRestitution(CFG.restitution), body).handle, kind);
 
   for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : CFG.deckFriction));
-  for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind, h.kind === 'ramp' ? 0.25 : CFG.deckFriction);
+  // (the board's wheels are slippery, so a coin on a funnel slides in)
+  for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind,
+                               h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction);
   for (const r of M.rails) {
     const d = [0, 1, 2].map(a => r.b[a] - r.a[a]), len = Math.hypot(...d), u = d.map(v => v / len);
     const ax = [u[2], 0, -u[0]], s = Math.hypot(...ax), half = Math.acos(Math.max(-1, Math.min(1, u[1]))) / 2;
@@ -146,10 +152,96 @@ export function createField(RAPIER, M, opts = {}) {
     const G = ch.guards;
     const cx = ch.xc + side * G.spacing / 2, cy = G.pivotY;
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(cx, cy, ch.zc));
-    add(RAPIER.ColliderDesc.capsule((G.length - G.width) / 2, G.width / 2).setTranslation(0, -G.length / 2, 0),
-        body, 'guard', 0.15);
+    // Rounded at the edges a coin can touch, and deep front to back - into
+    // the back panel and through the glass - so a coin it overlaps is always
+    // pushed out sideways, never through its own face (see the board, below).
+    const B = ch.board, r = G.width / 2, deep = (B.zB - B.zA) / 2 - r;
+    add(RAPIER.ColliderDesc.roundCuboid(0.001, (G.length - G.width) / 2, deep, r)
+          .setTranslation(0, -G.length / 2, (B.zA + B.zB) / 2 - ch.zc), body, 'guard', 0.15);
     return { body, cx, cy, side };
   }) : [];
+  /* ---- the board under the wipers: pins, and three wheels to drop through ---- */
+  const board = ch?.board;
+  if (board) {
+    // round metal posts from the panel to the glass (a cylinder stands along
+    // y; turned a quarter about x, it runs along z). Lively, like pachinko pins.
+    const along = { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
+    for (const p of board.pins) {
+      const desc = RAPIER.ColliderDesc.cylinder((board.zB - board.zA) / 2, p.r).setRotation(along)
+        .setTranslation(p.x, p.y, (board.zA + board.zB) / 2);
+      kindOf.set(world.createCollider(desc.setFriction(0.1).setRestitution(PIN_BOUNCE), fixed()).handle, 'pin');
+    }
+  }
+  /* A coin in the board moves only in the slot's plane, so if it is ever
+   * found overlapping a pin, a wheel or a wiper, the way out is in that plane
+   * too: put it back on the surface, and take away the part of its speed that
+   * was carrying it in. The stop-box idea, for the board - and it costs next
+   * to nothing, with only the coin or two falling at any moment to check. */
+  const R_COIN = CFG.coinR;
+  function unstick(c, t) {
+    let px = t.x, py = t.y, moved = false;
+    const v = c.body.linvel();
+    let vx = v.x, vy = v.y;
+    const out = (nx, ny, depth) => {        // depth > 0: overlapping that much
+      px += nx * depth; py += ny * depth; moved = true;
+      const vn = vx * nx + vy * ny;
+      if (vn < 0) { vx -= nx * vn * 1.2; vy -= ny * vn * 1.2; }
+    };
+    for (const p of board.pins) {
+      const dx = px - p.x, dy = py - p.y, d = Math.hypot(dx, dy) || 1e-6, depth = R_COIN + p.r - d;
+      if (depth > UNSTICK) out(dx / d, dy / d, depth);
+    }
+    for (const w of board.wheels) for (const P of w.flat) {
+      const [nx, ny, dist] = fromOutline(px, py, P);
+      if (R_COIN - dist > UNSTICK) out(nx, ny, R_COIN - dist);
+    }
+    const G = ch.guards, wa = wiperAngle(), s = Math.sin(wa), k = -Math.cos(wa);
+    for (const g of guards) {
+      const r0 = G.width / 2, r1 = G.length - G.width / 2;
+      const ax = g.cx + s * r0, ay = g.cy + k * r0, bx = g.cx + s * r1, by = g.cy + k * r1;
+      const ex = bx - ax, ey = by - ay, u = Math.max(0, Math.min(1, ((px - ax) * ex + (py - ay) * ey) / (ex * ex + ey * ey)));
+      const dx = px - ax - u * ex, dy = py - ay - u * ey, d = Math.hypot(dx, dy) || 1e-6, depth = R_COIN + G.width / 2 - d;
+      if (depth > UNSTICK) out(dx / d, dy / d, depth);
+    }
+    if (!moved) return;
+    f.unstuck++;
+    c.body.setTranslation({ x: px, y: py, z: ch.zc }, false);
+    c.body.setLinvel({ x: vx, y: vy, z: 0 }, true);
+  }
+  // From a point to a convex outline: the way out (a unit vector) and how
+  // far the outline's surface is - below zero when the point is inside it.
+  function fromOutline(x, y, P) {
+    let best = Infinity, bx = 0, by = 0, sign = 0, inside = true, edge = 0, edgeD = Infinity;
+    for (let n = 0; n < P.length; n++) {
+      const [ax, ay] = P[n], [cx, cy] = P[(n + 1) % P.length];
+      const ex = cx - ax, ey = cy - ay, len = Math.hypot(ex, ey);
+      const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (len * len)));
+      const qx = ax + u * ex, qy = ay + u * ey, d = Math.hypot(x - qx, y - qy);
+      if (d < best) { best = d; bx = qx; by = qy; }
+      const cr = ex * (y - ay) - ey * (x - ax);
+      if (cr) { const sg = Math.sign(cr); if (!sign) sign = sg; else if (sg !== sign) inside = false; }
+      if (Math.abs(cr) / len < edgeD) { edgeD = Math.abs(cr) / len; edge = n; }
+    }
+    if (!inside) { const d = best || 1e-6; return [(x - bx) / d, (y - by) / d, best]; }
+    // inside: out through the nearest edge, along its normal pointing away
+    // from the middle of the outline
+    const [ax, ay] = P[edge], [cx, cy] = P[(edge + 1) % P.length], len = Math.hypot(cx - ax, cy - ay);
+    let nx = (cy - ay) / len, ny = -(cx - ax) / len, mx = 0, my = 0;
+    for (const [qx, qy] of P) { mx += qx / P.length; my += qy / P.length; }
+    if (nx * ((ax + cx) / 2 - mx) + ny * ((ay + cy) / 2 - my) < 0) { nx = -nx; ny = -ny; }
+    return [nx, ny, -edgeD];
+  }
+  // Which way a coin leaving the board went: 0 the far-left gap ... 6 the
+  // far right. Through a wheel if it went down that wheel's channel; if not,
+  // the gap on its side of the nearest wheel. (Where it leaves is no guide:
+  // a coin rolling off a wheel's shoulder drops past underneath the wheel.)
+  const exitOf = (x, wheel) => {
+    if (wheel !== null) return 1 + 2 * wheel;
+    const w = board.wheels.reduce((a, b) => (Math.abs(b.cx - x) < Math.abs(a.cx - x) ? b : a));
+    return x < w.cx ? 2 * w.i : 2 * w.i + 2;
+  };
+  // in a wheel's channel, below its funnel: going through it
+  const wheelAt = t => board?.wheels.find(w => Math.abs(t.x - w.cx) < w.channel / 2 && t.y < w.cy + w.lip && t.y > w.cy - w.r);
   const inChute = t => ch && t.y > ch.exitY - 0.5 && Math.abs(t.z - ch.zc) < 1.6 && t.x > ch.x0 && t.x < ch.x1;
   // the short drop from the bottom of the box to the pusher: still capped,
   // or a coin hits the pusher's top fast enough to sink into it
@@ -367,6 +459,7 @@ export function createField(RAPIER, M, opts = {}) {
 
   const f = {
     world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
+    wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0,     // coins through each wheel; out of each of the board's 7 ways
     elapsed: 0, won: 0, lost: 0, frozen: 0, thaws: 0, freezes: 0, moving: 0, why: {}, nudges: 0, rescues: 0, lifts: 0, rescueLog: [], guards,
 
     setRate(newHz) { world.timestep = 1 / newHz; },
@@ -449,6 +542,8 @@ export function createField(RAPIER, M, opts = {}) {
       const G = ch.guards, room = Math.max(0, (G.spacing - G.width) / 2 - CFG.coinR - 0.1);
       const off = Math.min(1.1, room) * (0.35 + Math.random() * 0.65) * (Math.random() < 0.5 ? -1 : 1);
       f.wakeAt(c, [ch.xc + off, ch.inY, ch.zc, s, 0, 0, s]);
+      c.wheel = null;
+      c.exit = null;
       if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; c.outAt = 0; }
       // In the slot - one coin thick - a coin can only move in the slot's
       // plane: down, sideways, and turning like a wheel. A wiper's rounded
@@ -640,12 +735,20 @@ export function createField(RAPIER, M, opts = {}) {
         // Anti-jam. A coin that finds somewhere to rest inside the box gets
         // a flick, the way a real machine shakes itself loose.
         if (inChute(t)) {
-          if (c.planar) keepInSlot(c, t);
+          if (c.planar) { keepInSlot(c, t); if (board) unstick(c, t); }
+          if (board && c.wheel === null) {
+            const w = wheelAt(t);
+            if (w) { c.wheel = w.i; f.wheels[w.i]++; }
+          }
           // A real box slows a coin with its pins and wheels. This one just
           // will not let it go faster than this - at that speed nobody can tell.
-          const v = c.body.linvel(), sp = Math.hypot(v.x, v.y, v.z);
-          const G = ch.guards, cap = t.y > G.pivotY - G.length - 1 ? Math.min(G.drift, CHUTE_SPEED) : CHUTE_SPEED;
-          if (sp > cap) c.body.setLinvel({ x: v.x * cap / sp, y: v.y * cap / sp, z: v.z * cap / sp }, true);
+          // Only its fall is held back: capping its whole speed took the
+          // sideways throw off a wiper away in proportion as it fell, and no
+          // coin ever got further than the wheel next to the middle.
+          const v = c.body.linvel();
+          const G = ch.guards, cap = t.y > G.pivotY - G.length - 1 ? Math.min(G.drift, boardFall) : boardFall;
+          const vy = Math.max(-cap, Math.min(cap, v.y)), vx = Math.max(-CHUTE_SIDE, Math.min(CHUTE_SIDE, v.x));
+          if (vy !== v.y || vx !== v.x) c.body.setLinvel({ x: vx, y: vy, z: v.z }, true);
           c.inChute += world.timestep;
           if (c.inChute > CHUTE_STUCK) {
             f.nudges++;
@@ -664,6 +767,7 @@ export function createField(RAPIER, M, opts = {}) {
           // instead swung its bottom corner back INTO the panel.)
           // A touch of wobble too: a coin landing on its rim tips to one side.
           planar(c, false);                      // out of the slot: free again
+          if (board && c.exit === null) { c.exit = exitOf(t.x, c.wheel); f.exits[c.exit]++; }
           const v = c.body.linvel(), w = c.body.angvel();
           c.body.setLinvel({ x: v.x, y: v.y, z: v.z + 6 }, true);
           c.body.setAngvel({ x: w.x + 1 + Math.random(), y: w.y, z: w.z + (Math.random() - 0.5) * 4 }, true);
@@ -769,7 +873,8 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     type: 'state', t: f.elapsed, n, slots, xf, frozen, towers,
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
-    stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs },
+    stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
+             wheels: f.wheels.slice() },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer]];

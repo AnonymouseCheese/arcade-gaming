@@ -260,7 +260,10 @@ export function machineFromLayout(layout, opts = {}) {
   drop.y = deckTop;          // below the deck's top, inside the area: it has gone over the edge
 
   const chute = dropBox(pushers, statics);
-  if (chute) statics.push(...chute.parts);
+  if (chute) {
+    statics.push(...chute.parts);
+    for (const w of chute.board.wheels) for (const points of w.halves) hulls.push({ kind: 'wheel', points, wheel: w.i });
+  }
 
   // The payout tray: under the drop area, right across the machine. Coins
   // over the front land in it and sit a moment before being cleared away.
@@ -339,7 +342,11 @@ export function dropBox(pushers, statics) {
   // pinched coins past 41 degrees). The rule is kept by the slot's timing
   // (see `release`), not by crowding the arms.
   const guards = {
-    pivotY: topY - 0.6,       // the pivots, just under the top of the box
+    // The pivots sit far enough down that a coin let in at the top is clear
+    // of both arms whatever their angle. Higher up, an arm swung right out
+    // passed through the very spot a new coin appears, and the coin started
+    // inside it.
+    pivotY: topY - 1.6,
     spacing: +(globalThis.WIPER_SPACING ?? 5.4),   // between the two pivots
     length: +(globalThis.WIPER_LENGTH ?? 4.5),     // pivot to tip
     width: 0.7,               // each arm is a rounded bar this wide
@@ -358,7 +365,69 @@ export function dropBox(pushers, statics) {
     releaseAny: 0.7,          // ...or this far out, whichever way they are swinging
     anyway: 0.04,             // chance a coin is let go whatever the arms are doing
   };
-  return { x0, x1, xc, zc, gap, exitY, topY, inY: topY - 1.3, guards, scrapeZ: back, parts: [glass, panel] };
+  // a new coin's lowest point is above the highest any arm can reach
+  const inY = guards.pivotY + S / 2 + guards.width / 2 + 0.2;
+  const board = dropBoard(x0, x1, xc, exitY, topY, back, gap, guards);
+  return { x0, x1, xc, zc, gap, exitY, topY, inY, guards, board, scrapeZ: back, parts: [glass, panel] };
+}
+
+/**
+ * The board a coin falls down after the wipers, between the back panel and
+ * the glass. Across the bottom, three wheels - red, yellow, green - and four
+ * gaps: between the wheels and either side of them. Those are the only ways
+ * out, seven in all.
+ *
+ * Each wheel is a main drop point: a funnel on top and a channel straight
+ * through the middle, so a coin landing in the funnel drops through the
+ * wheel and is counted. A coin landing on a wheel's shoulder, outside the
+ * funnel, rolls off into the gap beside it - a minor drop point.
+ *
+ * Pins above scatter the coins on the way down. Every pin stands at least
+ * a coin's width and a little clear of every other part - the wipers'
+ * whole swing included - so nothing can ever pinch a coin.
+ */
+function dropBoard(x0, x1, xc, exitY, topY, back, gap, G) {
+  const W = x1 - x0;
+  const R = +(globalThis.BOARD_WHEEL ?? 3.3);          // wheel radius
+  const channel = S + 0.6;                    // through the middle: a coin with a little play
+  // the gaps between the wheels, at their narrowest; the two outside ones
+  // take whatever width is left
+  const g = +(globalThis.BOARD_GAP ?? 3.0);
+  const d = 2 * R + g;                        // wheel to wheel
+  const cy = exitY + 0.3 + R;                 // the wheels stand on the box's bottom edge
+  // The board's parts reach well into the back panel and right through the
+  // glass, out of sight. Only as deep as the slot, a coin overlapping one
+  // was pushed out through its own face, toward the glass; holding it in
+  // the slot undid that every step, and it fell straight through the part.
+  const zA = back - 2, zB = back + gap + 0.5;
+  // the funnel: from this far round the rim, the top slopes down to the channel
+  const FUNNEL = 52 * Math.PI / 180, LIP = 1.2;
+  const wheels = ['red', 'yellow', 'green'].map((colour, i) => {
+    const cx = xc + (i - 1) * d;
+    // two halves, either side of the channel, each one convex: the rim from
+    // the funnel's edge round to the bottom, up the channel, and back along
+    // the funnel's slope
+    const bottom = Math.PI - Math.asin(channel / 2 / R);
+    const outline = [];
+    for (let s = 0; s <= 10; s++) {
+      const a = FUNNEL + (bottom - FUNNEL) * s / 10;
+      outline.push([R * Math.sin(a), R * Math.cos(a)]);
+    }
+    outline.push([channel / 2, LIP]);
+    const flat = [-1, 1].map(side => (side < 0 ? outline.slice().reverse() : outline).map(([px, py]) => [cx + side * px, cy + py]));
+    const halves = flat.map(F => F.flatMap(([x, y]) => [x, y, zA, x, y, zB]));
+    return { i, colour, cx, cy, r: R, channel, lip: LIP, halves, flat };
+  });
+  // Pins in pairs either side of the middle: across, as a share of half the
+  // board's width, and down from its top, cm. Found by trying a few hundred
+  // layouts (each leaving a coin room to pass everywhere) for the one that
+  // spread coins most evenly across the ways out.
+  const pin = 0.3, half = W / 2;
+  const pins = [];
+  for (const [across, down] of [[0.542, 11.73], [0.314, 12.78], [0.521, 7.22], [0.716, 9.29], [0.774, 6.09]]) {
+    for (const k of across ? [-1, 1] : [0]) pins.push({ x: xc + k * half * across, y: topY - down, r: pin });
+  }
+  return { wheels, pins, zA, zB };      // plain data: it is sent to the drawing thread as it is
 }
 
 /**

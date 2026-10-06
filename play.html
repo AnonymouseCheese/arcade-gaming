@@ -34,6 +34,7 @@
   <div class="card stat">
     <div><small>Coins</small><b id="bank">0</b></div>
     <div><small>Paid out</small><b id="won">0</b></div>
+    <div><small>Wheels</small><b><span id="w0" style="color:#ff5468">0</span> <span id="w1" style="color:#ffd23d">0</span> <span id="w2" style="color:#4dff8a">0</span></b></div>
   </div>
   <div class="card" id="perf"></div>
 </div>
@@ -47,8 +48,8 @@
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
 import { CFG } from './config.js?v=6';
-import { machineFromLayout } from './machine.js?v=6';
-import { createField, snapshot } from './field-physics.js?v=6';
+import { machineFromLayout } from './machine.js?v=7';
+import { createField, snapshot } from './field-physics.js?v=7';
 import { createAudio } from './audio.js?v=6';
 
 /* ==================================================================== *
@@ -173,7 +174,7 @@ function prismMesh(points, kind) {
 }
 
 for (const s of M.statics) if (s.kind !== 'clip') scene.add(boxMesh(s, s.kind));   // stop blocks are invisible
-for (const h of M.hulls) scene.add(prismMesh(h.points, h.kind));
+for (const h of M.hulls) if (h.kind !== 'wheel') scene.add(prismMesh(h.points, h.kind));
 for (const r of M.rails) {
   const a = new THREE.Vector3(...r.a), b = new THREE.Vector3(...r.b);
   const rod = new THREE.Mesh(new THREE.CylinderGeometry(r.r, r.r, a.distanceTo(b), 16), chrome);
@@ -211,6 +212,46 @@ const guardMeshes = (M.chute ? [0, 1] : []).map(() => {
   scene.add(m);
   return m;
 });
+
+// The board under the wipers: chrome pins, and three wheels - red, yellow,
+// green - with a channel through the middle. Each lights up as a coin drops
+// through it.
+const WHEEL_HEX = { red: 0xff3b52, yellow: 0xffd23d, green: 0x3dff7a };
+const wheelLook = [];
+if (M.chute?.board) {
+  const C = M.chute, B = C.board, face = C.scrapeZ;          // the back panel's face
+  for (const w of B.wheels) {
+    const hex = WHEEL_HEX[w.colour];
+    // its face, printed on the panel behind
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(w.r + 0.6, 48),
+      Mat({ color: new THREE.Color(hex).multiplyScalar(0.45), emissive: hex, emissiveIntensity: 0.12, roughness: 0.8, metalness: 0,
+            envMapIntensity: 0.2 }));
+    disc.position.set(w.cx, w.cy, face + 0.02);
+    const hub = new THREE.Mesh(new THREE.RingGeometry(w.r + 0.6, w.r + 0.95, 48), chrome);
+    hub.position.set(w.cx, w.cy, face + 0.03);
+    scene.add(disc, hub);
+    // the two raised halves either side of the channel, the depth of the slot
+    const mat = Mat({ color: hex, emissive: hex, emissiveIntensity: 0.45, metalness: 0.1, roughness: 0.35, envMapIntensity: 0.4 });
+    for (const F of w.flat) {
+      const geo = new THREE.ExtrudeGeometry(new THREE.Shape(F.map(([x, y]) => new THREE.Vector2(x, y))),
+                                            { depth: C.gap * 0.95, bevelEnabled: false });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.z = face;
+      scene.add(m);
+    }
+    wheelLook.push({ disc, mat, lit: 0 });
+  }
+  for (const p of B.pins) {
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, C.gap + 0.3, 14), chrome);
+    pin.rotation.x = Math.PI / 2;
+    pin.position.set(p.x, p.y, face + C.gap / 2);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 1.7, p.r * 1.7, 0.08, 14), chrome);
+    head.rotation.x = Math.PI / 2;
+    head.position.set(p.x, p.y, face + 0.05);
+    scene.add(pin, head);
+  }
+}
+let wheelCounts = [0, 0, 0];
 
 // a cabinet underneath, with strips of light
 {
@@ -264,6 +305,10 @@ function onState(m) {
   prevPusher = curPusher; curPusher = m.pushers;
   guards = m.guards;
   lastStats = m.stats;
+  if (m.stats?.wheels) {
+    m.stats.wheels.forEach((n, i) => { if (n > wheelCounts[i] && wheelLook[i]) { wheelLook[i].lit = 1; } });
+    wheelCounts = m.stats.wheels.slice();
+  }
   payQueue += m.paid;
   stateAt = performance.now();
 }
@@ -296,7 +341,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=6', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=7', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -349,7 +394,7 @@ function fit() {
   if (view === 'angle') { yaw = 0.6; pitch = 0.45; } else if (!q.has('yaw')) { yaw = 0; pitch = +(q.get('pitch') || 0.62); }
   const B = M.bounds, lo = new THREE.Vector3(...B.lo), hi = new THREE.Vector3(...B.hi);
   target.copy(lo).add(hi).multiplyScalar(0.5);
-  target.y = lo.y + 4;
+  target.y = lo.y + (hi.y - lo.y) * 0.16;          // a taller machine (a taller drop board) is aimed higher
   target.z += 0.1 * (hi.z - lo.z);
   const r = hi.distanceTo(lo) / 2;
   const half = camera.fov * DEG / 2, hz = Math.atan(Math.tan(half) * camera.aspect);
@@ -423,6 +468,11 @@ function frame(now) {
     guardMeshes[i].position.set(at.x, at.y, at.z);
     guardMeshes[i].rotation.set(0, 0, at.ang);
   });
+  for (const w of wheelLook) {
+    w.lit = Math.max(0, w.lit - dt * 1.4);
+    w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
+    w.disc.material.emissiveIntensity = 0.12 + w.lit * 1.6;
+  }
 
   const f = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
   camera.position.copy(target).addScaledVector(f, -dist);
@@ -435,6 +485,7 @@ function report() {
   const S = lastStats;
   if (!S) { perf.textContent = 'Starting the physics...'; return; }
   document.getElementById('won').textContent = S.won;
+  (S.wheels || []).forEach((n, i) => { document.getElementById('w' + i).textContent = n; });
   perf.textContent =
     `${fps.toFixed(0)} fps   physics ${S.stepMs.toFixed(1)} ms a step at ${HZ}/s, ${USE_WORKER ? 'own thread' : 'on the page'}\n` +
     `${S.coins} coins: ${S.moving} moving, ${S.frozen} frozen\n` +
