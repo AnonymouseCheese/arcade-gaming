@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Field Playtest</title>
 <style>
   :root { --ink: #f3f6ff; --muted: #c3cbef; --panel: rgba(18, 16, 52, .82); --line: rgba(255, 255, 255, .2); --accent: #2ad4ff; --gold: #ffc63d; }
+  /* no pinch or double-tap zoom anywhere on the page: a game has no use for it,
+     and once zoomed in over the buttons there was no zooming back out */
+  html, body { touch-action: none; }
   html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink);
     font: 14px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif;
     background: radial-gradient(130% 100% at 50% 0%, #5a4fd0 0%, #33298a 40%, #1a1248 100%);
@@ -426,6 +429,9 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); dist = Math.max(30, 
 let bank = 100, auto = q.get('auto') === '1', nextAuto = 0;
 const audio = createAudio();
 addEventListener('pointerdown', () => audio.unlock(), { once: false });
+// iPhones ignore the page's no-zoom settings for a pinch; this stops it there
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(type, e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 let lastPhase = 0, simClock = 0;
 function dropCoin() {
   if (bank <= 0) return;

@@ -464,11 +464,19 @@ export function withAdditions(layout, additions) {
   const out = { ...layout, blocks: [...layout.blocks], rails: [...(layout.rails || [])], marks: [...(layout.marks || [])] };
   const have = new Set(out.blocks.map(b => key(b.i, b.j, b.k)));
   const pt = p => ({ x: p[0], y: p[1], z: p[2] });
+  const near = (p, q) => Math.abs(p.x - q.x) < 0.02 && Math.abs(p.y - q.y) < 0.02 && Math.abs(p.z - q.z) < 0.02;
   for (const d of additions.batches ?? [additions]) {
     for (const b of d.blocks || []) if (!have.has(key(b.i, b.j, b.k))) { out.blocks.push(b); have.add(key(b.i, b.j, b.k)); }
-    for (const r of d.rails || []) out.rails.push({ from: pt(r.a), to: pt(r.b), across: r.r * 2 });
-    for (const m of d.marks || []) out.marks.push({ type: m.type, name: m.label, at: pt(m.at),
-      ...(m.area ? { area: { from: pt(m.area.a), to: pt(m.area.b) } } : {}) });
+    // a rail or mark already in the layout (added in the editor, then saved)
+    // is not added twice; the editor rounds positions to 2 decimals
+    for (const r of d.rails || []) {
+      const rail = { from: pt(r.a), to: pt(r.b), across: r.r * 2 };
+      if (!out.rails.some(o => (near(o.from, rail.from) && near(o.to, rail.to)) || (near(o.from, rail.to) && near(o.to, rail.from)))) out.rails.push(rail);
+    }
+    for (const m of d.marks || []) {
+      if (out.marks.some(o => o.type === m.type && near(o.at, pt(m.at)))) continue;
+      out.marks.push({ type: m.type, name: m.label, at: pt(m.at), ...(m.area ? { area: { from: pt(m.area.a), to: pt(m.area.b) } } : {}) });
+    }
   }
   return out;
 }
