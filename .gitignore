@@ -1,7 +1,14 @@
 # Local only - not part of the game.
 reference/
+notes/
+PLAN.md
+test/
+tools/
+block-editor.html
+field-editor.html
+field.html
+field.js
+mockup.html
 
 # scratch
 *.local.*
-
-notes/
