@@ -5,11 +5,10 @@ PLAN.md
 test/
 tools/
 block-editor.html
-field-editor.html
-field.html
 field.js
 mockup.html
 old-machine/
+archive/
 
 # scratch
 *.local.*

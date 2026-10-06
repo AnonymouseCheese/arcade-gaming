@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=6';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=6';
+import { CFG } from './config.js?v=8';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=8';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -106,7 +106,7 @@ export function createField(RAPIER, M, opts = {}) {
   const add = (desc, body, kind, mu = CFG.deckFriction) =>
     kindOf.set(world.createCollider(desc.setFriction(mu).setRestitution(CFG.restitution), body).handle, kind);
 
-  for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : CFG.deckFriction));
+  for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : s.kind === 'deck' ? CFG.playfieldFriction : CFG.deckFriction));
   // (the board's wheels are slippery, so a coin on a funnel slides in)
   for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind,
                                h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction);
