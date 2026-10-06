@@ -273,7 +273,60 @@ export function machineFromLayout(layout, opts = {}) {
 
   statics.push(...stopBlocks(statics, lo, hi, drop.trayY - 1));
 
-  return { statics, hulls, pushers, rails, chute, zones: { drop }, bounds: { lo, hi } };
+  const outlets = findOutlets(cells, (lo[0] + hi[0]) / 2);
+
+  return { statics, hulls, pushers, rails, chute, outlets, zones: { drop }, bounds: { lo, hi } };
+}
+
+/**
+ * Where prizes come out: each piece of Coin outlet or Ball outlet blocks,
+ * and the face it opens on - of its two sides and its front (never into
+ * the back wall), the one with the most open space in front of it. So an
+ * outlet can be moved or resized in the editor and still work.
+ *   kind     'coin' | 'ball'
+ *   mouth    the middle of that face, cm      dir  out of it (unit, flat)
+ *   across   along the face, flat (unit)      width, height of the face, cm
+ *   bottom   the face's lowest edge, cm
+ */
+function findOutlets(cells, midX) {
+  const kinds = { coinout: 'coin', ballout: 'ball' };
+  const seen = new Set(), out = [];
+  const DIRS = [[0, 0, 1], [1, 0, 0], [-1, 0, 0]];
+  for (const [kk, b] of cells) {
+    if (!kinds[b.kind] || seen.has(kk)) continue;
+    const piece = [], stack = [kk];
+    seen.add(kk);
+    while (stack.length) {
+      const [i, j, k] = stack.pop().split(',').map(Number);
+      piece.push([i, j, k]);
+      for (const [di, dj, dk] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const nk = key(i + di, j + dj, k + dk);
+        if (!seen.has(nk) && cells.get(nk)?.kind === b.kind) { seen.add(nk); stack.push(nk); }
+      }
+    }
+    const cx = piece.reduce((a, c) => a + c[0], 0) / piece.length * S;
+    let best = null;
+    for (const d of DIRS) {
+      const open = piece.filter(([i, j, k]) => !cells.has(key(i + d[0], j, k + d[2])));
+      // most open cells; on a tie, the front, then the side facing the middle
+      const score = open.length * 10 + (d[2] ? 2 : Math.sign(midX - cx) === d[0] ? 1 : 0);
+      if (!best || score > best.score) best = { d, open, score };
+    }
+    const { d, open } = best;
+    const face = open.map(([i, j, k]) => [(i + d[0] * 0.5) * S, (j + 0.5) * S, (k + 0.5 + d[2] * 0.5) * S]);
+    const across = d[2] ? [1, 0, 0] : [0, 0, 1];
+    const along = face.map(p => p[0] * across[0] + p[2] * across[2]);
+    const ys = open.map(([, j]) => j);
+    out.push({
+      kind: kinds[b.kind],
+      mouth: [0, 1, 2].map(a => face.reduce((s, p) => s + p[a], 0) / face.length),
+      dir: d, across,
+      width: Math.max(...along) - Math.min(...along) + S,
+      height: (Math.max(...ys) - Math.min(...ys) + 1) * S,
+      bottom: Math.min(...ys) * S,
+    });
+  }
+  return out;
 }
 
 /**

@@ -15,9 +15,9 @@
  * ------------------------------------------------------------------ */
 
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=8';
-import { machineFromLayout } from './machine.js?v=8';
-import { createField, snapshot } from './field-physics.js?v=8';
+import { CFG } from './config.js?v=9';
+import { machineFromLayout } from './machine.js?v=9';
+import { createField, snapshot } from './field-physics.js?v=9';
 
 let field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
@@ -38,6 +38,10 @@ self.onmessage = async e => {
     loop();
   } else if (m.type === 'insert') {
     if (field) field.insert();
+  } else if (m.type === 'supply') {
+    if (field) field.supply(m.n ?? 10);
+  } else if (m.type === 'ball') {
+    if (field) field.ball();
   } else if (m.type === 'tower') {
     if (field) field.tower(m.n ?? 15);
   } else if (m.type === 'pause') {

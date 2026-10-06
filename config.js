@@ -14,14 +14,14 @@ export const CFG = {
    * the carpet, and friction against the deck is the only thing resisting.
    * Tuned with test/feel.mjs - do not eyeball these. */
   gravity:      -900,
-  coinFriction:   0.30,   // coin on coin: 0.55 let coins heap up against the pusher instead of moving on
+  coinFriction:   0.25,   // coin on coin: 0.55 let coins heap up against the pusher instead of moving on
   deckFriction:   0.80,   // walls, stage floors
   // The open decks coins are pushed across, polished steel. At 0.80 the
   // middle deck's pile barely moved: one coin in five came back in normal
-  // play and the pile kept growing. At 0.25 (with coins at 0.30) twice as
-  // many come back, and with nobody playing it sheds no more than before
-  // (test/centre-flow.mjs).
-  playfieldFriction: 0.25,
+  // play and the pile kept growing. At 0.15 (with coins at 0.25) three
+  // times as many come back, and with nobody playing it sheds no more than
+  // before (test/centre-flow.mjs, each setting on its own re-settled pile).
+  playfieldFriction: 0.15,
   linDamp:        0.55,
   angDamp:        0.80,
   restitution:    0.02,

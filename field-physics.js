@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=8';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=8';
+import { CFG } from './config.js?v=9';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=9';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -41,7 +41,22 @@ const STANDING_TIP = 0.6;        // s balanced on its rim after landing, then th
 const SURFACE_DEPTH = 2.4;  // cm - pressed less than this into a surface: lift it back on top
 const LANDING_SPEED = 20;  // cm/s - from the bottom of the box down onto the pusher
 const PIN_BOUNCE = 0.35;  // the board's pins are livelier than anything else
-const UNSTICK = 0.03;     // cm: overlap a coin in the board may have before it is put back out
+const UNSTICK = 0.03;
+// The outlets (machine.js, findOutlets). A coin supply shoots coins out in a
+// quick stream, each a little off straight, up or down and to either side,
+// the way a real hopper does; most land on the side pusher below it. A ball
+// outlet lets a ball roll gently out, so balls gather by the outer wall.
+const SHOT_GAP = 0.13;       // s between coins out of one coin supply
+const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 65);           // cm/s, give or take a fifth: 84% land on the pusher
+const SHOT_UP = [-8, +(globalThis.SHOT_UP ?? 18)];           // degrees above level, lowest..highest
+const SHOT_SIDE = 12;        // degrees either side of straight out
+const BALL_R = 2.2;          // cm: just under the ball outlet's 4.8 cm opening
+const BALL_DENSITY = 0.45;   // a ball weighs about five coins
+const BALL_ROLL = 6;         // cm/s it rolls out at
+const MAX_BALLS = 24;
+const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
+export const BALL_RADIUS = BALL_R;
+const DEG = Math.PI / 180;     // cm: overlap a coin in the board may have before it is put back out
 const CHUTE_STUCK = 3;    // s - in the box this long and it is stuck: flick it. The wipers
                           // keep coins moving; 1.2 s (the old chute's) flicked coins that
                           // were only drifting slowly past them
@@ -400,6 +415,24 @@ export function createField(RAPIER, M, opts = {}) {
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the wipers
   const D = M.zones.drop;
+  const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
+  const ballOutlets = (M.outlets || []).filter(o => o.kind === 'ball');
+  const shots = [];                        // coins due out of a coin supply
+  /* ---- big balls: a small pool of spheres, made once ---- */
+  const balls = [];
+  for (let i = 0; i < MAX_BALLS; i++) {
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, -700 - i * 10, 0)
+      .setLinearDamping(CFG.linDamp).setAngularDamping(0.6).setCanSleep(true));
+    const collider = world.createCollider(RAPIER.ColliderDesc.ball(BALL_R).setDensity(BALL_DENSITY)
+      .setFriction(0.3).setRestitution(0.15), body);
+    body.setEnabled(false);
+    balls.push({ body, collider, slot: i, live: false, inAt: 0 });
+  }
+  const parkBall = b => {
+    b.body.setEnabled(false);
+    b.body.setTranslation({ x: 0, y: -700 - b.slot * 10, z: 0 }, false);
+    b.live = false;
+  };
   // positive turns a hanging arm's tip toward +x (to the right)
   const wiperAngle = (at = f.elapsed) => ch ? ch.guards.swing * Math.sin(at / ch.guards.period * Math.PI * 2) : 0;
 
@@ -459,7 +492,8 @@ export function createField(RAPIER, M, opts = {}) {
 
   const f = {
     world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
-    wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0,     // coins through each wheel; out of each of the board's 7 ways
+    wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0,
+    balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],     // coins through each wheel; out of each of the board's 7 ways
     elapsed: 0, won: 0, lost: 0, frozen: 0, thaws: 0, freezes: 0, moving: 0, why: {}, nudges: 0, rescues: 0, lifts: 0, rescueLog: [], guards,
 
     setRate(newHz) { world.timestep = 1 / newHz; },
@@ -517,6 +551,35 @@ export function createField(RAPIER, M, opts = {}) {
       if (v.x * v.x + v.y * v.y + v.z * v.z > CCD_FALL * CCD_FALL) { c.body.enableCcd(true); c.ccd = true; }
       if (onWake) onWake(c);
       return c;
+    },
+
+    /** Fire every coin supply: n coins out of each, one after another. */
+    supply(n = 10, onWake) {
+      for (const o of coinOutlets) for (let i = 0; i < n; i++) shots.push({ o, at: f.elapsed + i * SHOT_GAP + Math.random() * 0.04, onWake });
+      return coinOutlets.length * n;
+    },
+
+    /** One ball out of every ball outlet, rolling gently out of it. */
+    ball(onWake) {
+      let n = 0;
+      for (const o of ballOutlets) {
+        const b = balls.find(x => !x.live);
+        if (!b) break;
+        const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * BALL_R) * 0.6;
+        const x = o.mouth[0] + o.dir[0] * (BALL_R + 0.15) + o.across[0] * off;
+        const z = o.mouth[2] + o.dir[2] * (BALL_R + 0.15) + o.across[2] * off;
+        b.body.setTranslation({ x, y: o.bottom + BALL_R + 0.05, z }, true);
+        b.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+        const v = BALL_ROLL * (0.7 + Math.random() * 0.6), wob = (Math.random() - 0.5) * 2;
+        b.body.setLinvel({ x: o.dir[0] * v + o.across[0] * wob, y: 0, z: o.dir[2] * v + o.across[2] * wob }, true);
+        b.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        b.body.setEnabled(true);
+        b.live = true;
+        b.inAt = 0;
+        if (onWake) onWake(b);
+        n++;
+      }
+      return n;
     },
 
     /** Drop a coin into the slot. It falls into the box when the wipers
@@ -630,6 +693,32 @@ export function createField(RAPIER, M, opts = {}) {
       for (const g of guards) g.body.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(wa / 2), w: Math.cos(wa / 2) });
       world.step(events);
       stepTowers(onCollected);
+
+      // coin supplies: each coin that is due goes out now, a little off straight
+      for (let i = shots.length - 1; i >= 0; i--) {
+        if (shots[i].at > f.elapsed) continue;
+        const { o, onWake } = shots[i];
+        shots.splice(i, 1);
+        const off = (Math.random() - 0.5) * Math.max(0, o.width - 2 * CFG.coinR) * 0.7;
+        const up = (SHOT_UP[0] + Math.random() * (SHOT_UP[1] - SHOT_UP[0])) * DEG;
+        const side = (Math.random() - 0.5) * 2 * SHOT_SIDE * DEG;
+        const sp = SHOT_SPEED * (0.8 + Math.random() * 0.4), flat = sp * Math.cos(up);
+        const hx = o.dir[0] * Math.cos(side) + o.across[0] * Math.sin(side);
+        const hz = o.dir[2] * Math.cos(side) + o.across[2] * Math.sin(side);
+        const c = f.drop(o.mouth[0] + o.dir[0] * (CFG.coinR + 0.2) + o.across[0] * off, o.mouth[1],
+                         o.mouth[2] + o.dir[2] * (CFG.coinR + 0.2) + o.across[2] * off,
+                         { x: hx * flat, y: sp * Math.sin(up), z: hz * flat }, onWake);
+        if (c) c.body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 6, z: (Math.random() - 0.5) * 8 }, true);
+      }
+
+      // balls: counted once they drop into the payout area, then cleared
+      for (const b of balls) {
+        if (!b.live) continue;
+        const t = b.body.translation();
+        if (b.inAt) { if (f.elapsed - b.inAt > BALL_HOLD) parkBall(b); continue; }
+        if (t.y < D.y && t.z > D.z0) { b.inAt = f.elapsed; f.ballsIn++; continue; }
+        if (t.y < -10) { f.ballsLost++; parkBall(b); }
+      }
 
       // the slot: let the next coin go when the wipers are swung out to meet it
       // (swinging back toward straight down, an arm moves away from the coin)
@@ -869,13 +958,20 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     const t = T.body.translation(), q = T.body.rotation();
     towers.set([t.x, t.y, t.z, q.x, q.y, q.z, q.w, T.n], i * 8);
   });
+  // balls: slot, then position and turn
+  const live = f.balls.filter(b => b.live);
+  const balls = new Float32Array(live.length * 8);
+  live.forEach((b, i) => {
+    const t = b.body.translation(), q = b.body.rotation();
+    balls.set([b.slot, t.x, t.y, t.z, q.x, q.y, q.z, q.w], i * 8);
+  });
   const msg = {
-    type: 'state', t: f.elapsed, n, slots, xf, frozen, towers,
+    type: 'state', t: f.elapsed, n, slots, xf, frozen, towers, balls,
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice() },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn },
     paid,
   };
-  return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer]];
+  return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];
 }

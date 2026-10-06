@@ -38,6 +38,7 @@
     <div><small>Coins</small><b id="bank">0</b></div>
     <div><small>Paid out</small><b id="won">0</b></div>
     <div><small>Wheels</small><b><span id="w0" style="color:#ff5468">0</span> <span id="w1" style="color:#ffd23d">0</span> <span id="w2" style="color:#4dff8a">0</span></b></div>
+    <div><small>Balls</small><b id="ballsIn" style="color:#5aa8ff">0</b></div>
   </div>
   <div class="card" id="perf"></div>
 </div>
@@ -45,15 +46,17 @@
   <button id="drop" class="go">Drop a coin</button>
   <button id="auto" aria-pressed="false">Keep dropping</button>
   <button id="view">Turn the view</button>
+  <button id="testCoins" title="Test: every coin supply shoots out 10 coins - the machine's, not yours">Test coins</button>
+  <button id="testBall" title="Test: one ball out of every ball outlet">Test ball</button>
 </div>
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=8';
-import { machineFromLayout } from './machine.js?v=8';
-import { createField, snapshot } from './field-physics.js?v=8';
-import { createAudio } from './audio.js?v=8';
+import { CFG } from './config.js?v=9';
+import { machineFromLayout } from './machine.js?v=9';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=9';
+import { createAudio } from './audio.js?v=9';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -286,6 +289,17 @@ const prevX = new Float32Array(MAXC * 3), curX = new Float32Array(MAXC * 3);
 const prevQ = new Float32Array(MAXC * 4), curQ = new Float32Array(MAXC * 4);
 const live = new Uint8Array(MAXC), frozenAt = new Uint8Array(MAXC);
 let slots = new Int16Array(0), lastStats = null, stateAt = 0, payQueue = 0;
+
+// the big balls, by pool slot: blue and glittery
+const MAXB = 24;
+const ballMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(BALL_RADIUS, 28, 20),
+  Mat({ color: 0x2f7dff, metalness: 0.55, roughness: 0.22, envMapIntensity: 1.8, emissive: 0x0b2f8f, emissiveIntensity: 0.45 }), MAXB);
+ballMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+ballMesh.frustumCulled = false;
+ballMesh.count = 0;
+scene.add(ballMesh);
+const ballPrev = new Float32Array(MAXB * 7), ballCur = new Float32Array(MAXB * 7);
+let ballSlots = [];
 let prevPusher = M.pushers.map(() => 0), curPusher = prevPusher.slice(), guards = [];
 
 /** A physics step has arrived: it becomes "now", and "now" becomes "before". */
@@ -308,6 +322,16 @@ function onState(m) {
   prevPusher = curPusher; curPusher = m.pushers;
   guards = m.guards;
   lastStats = m.stats;
+  ballPrev.set(ballCur);
+  const nb = m.balls ? m.balls.length / 8 : 0, seenB = [];
+  for (let i = 0; i < nb; i++) {
+    const s = m.balls[i * 8], o = s * 7;
+    const fresh = !ballSlots.includes(s);
+    for (let a = 0; a < 7; a++) ballCur[o + a] = m.balls[i * 8 + 1 + a];
+    if (fresh) ballPrev.set(ballCur.subarray(o, o + 7), o);     // just appeared: no streak
+    seenB.push(s);
+  }
+  ballSlots = seenB;
   if (m.stats?.wheels) {
     m.stats.wheels.forEach((n, i) => { if (n > wheelCounts[i] && wheelLook[i]) { wheelLook[i].lit = 1; } });
     wheelCounts = m.stats.wheels.slice();
@@ -344,11 +368,12 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=8', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=9', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
-  sim = { insert: () => worker.postMessage({ type: 'insert' }), frame() {}, alpha: () => Math.min(1, (performance.now() - stateAt) * HZ / 1000) };
+  sim = { insert: () => worker.postMessage({ type: 'insert' }), frame() {}, alpha: () => Math.min(1, (performance.now() - stateAt) * HZ / 1000),
+          supply: n => worker.postMessage({ type: 'supply', n }), ball: () => worker.postMessage({ type: 'ball' }) };
 } else {
   await RAPIER.init();
   const field = createField(RAPIER, M, { ...SIM_OPTS, shape: 'box' });
@@ -357,6 +382,8 @@ if (USE_WORKER) {
   onState(snapshot(field)[0]);
   sim = {
     insert: () => field.insert(),
+    supply: n => field.supply(n),
+    ball: () => field.ball(),
     frame(dt) {
       acc += dt;
       const step = field.world.timestep;
@@ -440,6 +467,12 @@ function dropCoin() {
   audio.drop();
 }
 document.getElementById('drop').addEventListener('click', e => { e.stopPropagation(); dropCoin(); });
+// Test buttons for the outlets. The coin supply's coins are the machine's,
+// so nothing comes out of your coins.
+document.getElementById('testCoins').addEventListener('click', e => { e.stopPropagation(); sim.supply(10); });
+document.getElementById('testBall').addEventListener('click', e => { e.stopPropagation(); sim.ball(); });
+// ?fire=1 fires both once, shortly after loading (for testing)
+if (q.get('fire') === '1') setTimeout(() => { sim.supply(10); sim.ball(); }, 400);
 const autoBtn = document.getElementById('auto');
 autoBtn.setAttribute('aria-pressed', String(auto));
 autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); });
@@ -464,6 +497,15 @@ function frame(now) {
   sim.frame(dt);
   const a = sim.alpha();
   drawCoins(a);
+  ballSlots.forEach((s, n) => {
+    const o = s * 7, lerp = k => ballPrev[o + k] + (ballCur[o + k] - ballPrev[o + k]) * a;
+    dummy.position.set(lerp(0), lerp(1), lerp(2));
+    dummy.quaternion.set(ballCur[o + 3], ballCur[o + 4], ballCur[o + 5], ballCur[o + 6]);
+    dummy.updateMatrix();
+    ballMesh.setMatrixAt(n, dummy.matrix);
+  });
+  ballMesh.count = ballSlots.length;
+  ballMesh.instanceMatrix.needsUpdate = true;
   if (payQueue) { bank += payQueue; audio.payout(payQueue); payQueue = 0; }
   const phase = (simClock / CFG.period) % 1;
   if (phase < lastPhase || (lastPhase < 0.5 && phase >= 0.5)) audio.clunk();
@@ -492,6 +534,7 @@ function report() {
   if (!S) { perf.textContent = 'Starting the physics...'; return; }
   document.getElementById('won').textContent = S.won;
   (S.wheels || []).forEach((n, i) => { document.getElementById('w' + i).textContent = n; });
+  document.getElementById('ballsIn').textContent = S.ballsIn ?? 0;
   perf.textContent =
     `${fps.toFixed(0)} fps   physics ${S.stepMs.toFixed(1)} ms a step at ${HZ}/s, ${USE_WORKER ? 'own thread' : 'on the page'}\n` +
     `${S.coins} coins: ${S.moving} moving, ${S.frozen} frozen\n` +
