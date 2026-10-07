@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=13';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=13';
+import { CFG } from './config.js?v=14';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=14';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -62,8 +62,10 @@ const BALL_ROLL = 6;         // cm/s it rolls out at
 const MAX_BALLS = 24;
 // Like a real hopper, the coin supplies only have so much to give: with this many
 // coins in play they hold their queue until some have paid out. Prizes cannot
-// pile coins up past what a phone can simulate (~44 ms a step at 1,370 coins).
-const FIELD_CAP = 950;
+// pile coins up past what a phone can simulate: on Rapier 0.21 SIMD, ~23 ms a
+// step at 1,350 coins, ~31 at 1,500, ~40 at 1,700 (budget 33; test/capacity.mjs).
+// The cabinet itself holds no more than ~1,800 before coins overflow.
+const FIELD_CAP = 1350;
 const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
 export const BALL_RADIUS = BALL_R;
 const DEG = Math.PI / 180;
@@ -116,14 +118,24 @@ export function createField(RAPIER, M, opts = {}) {
   // stopped the payout dead or barely saved anything (test/field-play.mjs).
   const freeze  = opts.freeze ?? false;
   const mode    = opts.freezeMode ?? 'creep';
-  const max     = opts.maxCoins ?? 1400;
+  const max     = opts.maxCoins ?? 1700;      // the coin pool: the cap, plus coins in the tray and in flight
   const boardFall = opts.boardFall ?? CHUTE_SPEED;   // cm/s, the fastest a coin falls in the drop box
   const period  = opts.period ?? CFG.period;
 
   const world = new RAPIER.World({ x: 0, y: CFG.gravity, z: 0 });
   world.timestep = 1 / hz;
   world.numSolverIterations = iters;
-  if (opts.lengthUnit) world.lengthUnit = opts.lengthUnit;
+  // Rapier 0.21 (the engine.js builds) has a newer solver with its own
+  // tolerances. This machine is in cm, the engine assumes metres: told the
+  // unit is 10 and given stiffer contacts, it needs the safety net least and
+  // the pile still creeps (test/archive/engine notes in PLAN.md).
+  const newSolver = 'contact_natural_frequency' in Object.getPrototypeOf(world.integrationParameters);
+  if (newSolver) {
+    world.lengthUnit = opts.lengthUnit ?? 10;
+    world.integrationParameters.contact_natural_frequency = opts.contactHz ?? 960;
+  } else if (opts.lengthUnit) world.lengthUnit = opts.lengthUnit;
+  // any other engine setting, by name (for tuning): { normalizedAllowedLinearError: .., contact_erp: .. }
+  for (const [k, v] of Object.entries(opts.engine || {})) world.integrationParameters[k] = v;
   const events = new RAPIER.EventQueue(true);
 
   /* ---- the machine ---- */

@@ -1,0 +1,3 @@
+# Third-party engine builds: never touch their line endings - the physics
+# engine is embedded inside its file, and one changed character corrupts it.
+vendor/** -text -diff

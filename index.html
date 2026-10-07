@@ -57,12 +57,12 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=13';
-import { machineFromLayout } from './machine.js?v=13';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=13';
-import { createAudio } from './audio.js?v=13';
-import { createWheels, paintWheel } from './wheels.js?v=13';
+import { loadRapier, simd } from './engine.js?v=14';
+import { CFG } from './config.js?v=14';
+import { machineFromLayout } from './machine.js?v=14';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=14';
+import { createAudio } from './audio.js?v=14';
+import { createWheels, paintWheel } from './wheels.js?v=14';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -362,7 +362,7 @@ for (const o of M.outlets || []) {
 
 /* ---------------- coins ---------------- */
 
-const MAXC = 1400;                     // the physics' coin pool
+const MAXC = 1700;                     // the physics' coin pool
 const coinMesh = new THREE.InstancedMesh(
   new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, CFG.coinT, 20),
   Mat({ color: 0xdfe3ea, metalness: 0.92, roughness: 0.27, envMapIntensity: 2.2, emissive: 0xdfe3ea, emissiveIntensity: 0.05 }),
@@ -460,14 +460,14 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=13', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=14', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
   sim = { insert: () => worker.postMessage({ type: 'insert' }), frame() {}, alpha: () => Math.min(1, (performance.now() - stateAt) * HZ / 1000),
           supply: n => worker.postMessage({ type: 'supply', n }), ball: () => worker.postMessage({ type: 'ball' }) };
 } else {
-  await RAPIER.init();
+  const RAPIER = await loadRapier();
   const field = createField(RAPIER, M, { ...SIM_OPTS, shape: 'box' });
   if (pile) field.seedFrom(pile);
   let acc = 0, stepMs = 0, paid = 0;
@@ -639,7 +639,7 @@ function report() {
   (S.wheels || []).forEach((n, i) => { document.getElementById('w' + i).textContent = n; });
   document.getElementById('ballsIn').textContent = S.ballsIn ?? 0;
   perf.textContent =
-    `${fps.toFixed(0)} fps   physics ${S.stepMs.toFixed(1)} ms a step at ${HZ}/s, ${USE_WORKER ? 'own thread' : 'on the page'}\n` +
+    `${fps.toFixed(0)} fps   physics ${S.stepMs.toFixed(1)} ms a step at ${HZ}/s, ${USE_WORKER ? 'own thread' : 'on the page'}, ${simd ? 'fast engine' : 'plain engine'}\n` +
     `${S.coins} coins: ${S.moving} moving, ${S.frozen} frozen\n` +
     `lost ${S.lost}   put back ${S.rescues}`;
   document.title = `Field Playtest - ${S.coins} coins, ${S.stepMs.toFixed(1)} ms`;
