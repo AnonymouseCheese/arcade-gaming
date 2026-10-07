@@ -522,15 +522,23 @@ function stopBlocks(statics, lo, hi, floorY) {
   const T = 12;                                                  // cm thick
   const glass = statics.filter(s => s.kind === 'glass' && s.h[0] * 2 > (hi[0] - lo[0]) * 0.9);
   const front = glass.length ? Math.max(...glass.map(s => s.c[2] + s.h[2])) : hi[2];
+  // The front glass is drawn, but in the physics the block in front stands in
+  // for it, from the glass's inner face out: with the 4 mm glass there too, a
+  // coin pushed past its middle was pushed on out by the glass and back in by
+  // the block, and stayed there - standing in the glass at the foot of a ramp,
+  // for good. One thick block only ever pushes a coin back in.
+  const inner = glass.length ? Math.min(...glass.map(s => s.c[2] - s.h[2])) : hi[2];
+  for (const s of glass) s.drawOnly = true;
+  const glassMu = glass.length ? (glass[0].mu ?? 0.2) : undefined;
   const lid = hi[1] + 0.6;
-  const box = (x0, x1, y0, y1, z0, z1) => ({ kind: 'clip', c: [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
-                                             h: [(x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2] });
+  const box = (x0, x1, y0, y1, z0, z1, mu) => ({ kind: 'clip', c: [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
+                                                 h: [(x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2], ...(mu !== undefined ? { mu } : {}) });
   const X0 = lo[0] - T, X1 = hi[0] + T, Y0 = floorY - T, Y1 = lid + T, Z0 = lo[2] - T, Z1 = front + T;
   return [
     box(X0, lo[0], Y0, Y1, Z0, Z1),          // left
     box(hi[0], X1, Y0, Y1, Z0, Z1),          // right
     box(X0, X1, Y0, Y1, Z0, lo[2]),          // back
-    box(X0, X1, Y0, Y1, front, Z1),          // in front of the glass
+    box(X0, X1, Y0, Y1, inner, Z1, glassMu), // the front glass, as far as coins can tell
     box(X0, X1, lid, Y1, Z0, Z1),            // the lid
     box(X0, X1, Y0, floorY, Z0, Z1),         // under the tray
   ];

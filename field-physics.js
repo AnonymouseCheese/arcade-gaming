@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=19';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=19';
+import { CFG } from './config.js?v=20';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=20';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -149,9 +149,25 @@ export function createField(RAPIER, M, opts = {}) {
   const add = (desc, body, kind, mu = CFG.deckFriction) =>
     kindOf.set(world.createCollider(desc.setFriction(mu).setRestitution(CFG.restitution), body).handle, kind);
 
-  for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : (s.kind === 'deck' || s.playfield) ? CFG.playfieldFriction : CFG.deckFriction));
+  for (const s of M.statics) if (!s.drawOnly) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : (s.kind === 'deck' || s.playfield) ? CFG.playfieldFriction : CFG.deckFriction));
   // (the board's wheels are slippery, so a coin on a funnel slides in)
-  for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind,
+  // A ramp that runs down into the front glass goes on through it, in the
+  // physics only. Ending flush with the glass, it left a sharp corner between
+  // its sloping top and the glass: a coin sliding in sank a little into the
+  // ramp beside its front face, the ramp pushed it out through that face into
+  // the glass, the glass pushed it back - and it stood there for good.
+  const glassZ = Math.min(...M.statics.filter(s => s.drawOnly).map(s => s.c[2] - s.h[2]));
+  const physPoints = h => {
+    if (!h.plane || !isFinite(glassZ)) return h.points;
+    const P = h.points.slice(), lowY = Math.min(...P.filter((v, i) => i % 3 === 1));
+    for (let i = 0; i < P.length; i += 3) {
+      if (P[i + 2] < glassZ - 0.01) continue;
+      P[i + 2] += 3;
+      if (P[i + 1] > lowY + 0.5) P[i + 1] = h.plane.a + h.plane.b * P[i] + h.plane.c * P[i + 2];   // the top carries on down its slope
+    }
+    return P;
+  };
+  for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(physPoints(h))), fixed(), h.kind,
                                h.mu ?? (h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction));
   for (const r of M.rails) {
     const d = [0, 1, 2].map(a => r.b[a] - r.a[a]), len = Math.hypot(...d), u = d.map(v => v / len);
@@ -391,7 +407,7 @@ export function createField(RAPIER, M, opts = {}) {
   const SKIN = 0.25, PUSHER_SKIN = 0.7;
   const shrink = (b, k) => [b.c[0] - b.h[0] + k, b.c[0] + b.h[0] - k, b.c[1] - b.h[1] + k,
                             b.c[1] + b.h[1] - k, b.c[2] - b.h[2] + k, b.c[2] + b.h[2] - k];
-  const solidBoxes = M.statics.map(b => shrink(b, SKIN));
+  const solidBoxes = M.statics.filter(b => !b.drawOnly).map(b => shrink(b, SKIN));
   const pusherBoxes = pushers.map(p => p.boxes.map(b => shrink(b, PUSHER_SKIN)));
   const ramps = M.hulls.filter(h => h.plane).map(h => h.plane);
   const inBox = (t, b, dz = 0) => t.x > b[0] && t.x < b[1] && t.y > b[2] && t.y < b[3] && t.z > b[4] + dz && t.z < b[5] + dz;
@@ -1000,21 +1016,25 @@ export function createField(RAPIER, M, opts = {}) {
         // Looked at twice a second: it costs next to nothing.
         if (!c.round && tick % 15 === c.slot % 15) {
           const q = c.body.rotation(), up = Math.abs(1 - 2 * (q.x * q.x + q.z * q.z));
-          if (up < Math.cos(1.2) && v2 < 25) {
+          const standing = up < Math.cos(1.2);
+          if (standing && v2 < 25) {
             c.edgeSince ??= f.elapsed;
             if (f.elapsed - c.edgeSince > EDGE_TIP) {
               // tip it over its face - the way it can fall - toward the middle
-              // and front of the machine, so away from whatever it leans on
-              const m = c.collider.mass();
+              // and front of the machine, so away from whatever it leans on.
+              // Harder each time it ends up standing again: one leaning on the
+              // front glass at the foot of a ramp has to go over uphill, and a
+              // gentle shake only rocked it back against the glass, for good.
+              const m = c.collider.mass(), k = 6 * Math.min(4, (c.tips = (c.tips || 0) + 1));
               let ax = 2 * (q.x * q.y - q.w * q.z), az = 2 * (q.y * q.z + q.w * q.x);
               const len = Math.hypot(ax, az) || 1;
               ax /= len; az /= len;
               if (ax * (midX - t.x) + az * (D.z0 - t.z) < 0) { ax = -ax; az = -az; }
-              c.body.applyImpulseAtPoint({ x: ax * m * 6, y: 0, z: az * m * 6 }, { x: t.x, y: t.y + CFG.coinR * 0.9, z: t.z }, true);
+              c.body.applyImpulseAtPoint({ x: ax * m * k, y: 0, z: az * m * k }, { x: t.x, y: t.y + CFG.coinR * 0.9, z: t.z }, true);
               c.edgeSince = undefined;
               f.toppled++;
             }
-          } else c.edgeSince = undefined;
+          } else { c.edgeSince = undefined; if (!standing) c.tips = 0; }
         }
         if (!freeze) continue;
         const w = c.body.angvel();

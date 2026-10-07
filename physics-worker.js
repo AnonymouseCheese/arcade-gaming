@@ -14,10 +14,10 @@
  *  of slots. The arrays are transferred, not copied.
  * ------------------------------------------------------------------ */
 
-import { loadRapier } from './engine.js?v=19';
-import { CFG } from './config.js?v=19';
-import { machineFromLayout } from './machine.js?v=19';
-import { createField, snapshot } from './field-physics.js?v=19';
+import { loadRapier } from './engine.js?v=20';
+import { CFG } from './config.js?v=20';
+import { machineFromLayout } from './machine.js?v=20';
+import { createField, snapshot } from './field-physics.js?v=20';
 
 let RAPIER = null, field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
