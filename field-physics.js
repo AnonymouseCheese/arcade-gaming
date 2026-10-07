@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=14';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=14';
+import { CFG } from './config.js?v=15';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=15';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -133,6 +133,8 @@ export function createField(RAPIER, M, opts = {}) {
   if (newSolver) {
     world.lengthUnit = opts.lengthUnit ?? 10;
     world.integrationParameters.contact_natural_frequency = opts.contactHz ?? 960;
+    // contacts counted from 0.1 cm apart, not 0.2: ~7% less work in a packed pile, same play
+    world.integrationParameters.normalizedPredictionDistance = opts.predict ?? 0.01;
   } else if (opts.lengthUnit) world.lengthUnit = opts.lengthUnit;
   // any other engine setting, by name (for tuning): { normalizedAllowedLinearError: .., contact_erp: .. }
   for (const [k, v] of Object.entries(opts.engine || {})) world.integrationParameters[k] = v;
