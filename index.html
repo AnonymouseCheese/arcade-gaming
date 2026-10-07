@@ -57,12 +57,13 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=18';
-import { CFG } from './config.js?v=18';
-import { machineFromLayout } from './machine.js?v=18';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=18';
-import { createAudio } from './audio.js?v=18';
-import { createWheels, paintWheel } from './wheels.js?v=18';
+import { loadRapier, simd } from './engine.js?v=19';
+import { CFG } from './config.js?v=19';
+import { machineFromLayout } from './machine.js?v=19';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=19';
+import { createAudio } from './audio.js?v=19';
+import { createWheels, paintWheel } from './wheels.js?v=19';
+import { createSteady } from './steady.js?v=19';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -391,14 +392,27 @@ const ballPrev = new Float32Array(MAXB * 7), ballCur = new Float32Array(MAXB * 7
 let ballSlots = [];
 let prevPusher = M.pushers.map(() => 0), curPusher = prevPusher.slice(), guards = [];
 
+// coins jiggling in place are drawn still (steady.js)
+const steady = createSteady(MAXC), steadyBalls = createSteady(MAXB), pose = new Float32Array(7);
+// how far the pusher a coin is riding on moved this step, or 0
+function rideOf(x, y, z, pz, dz) {
+  for (let k = 0; k < M.pushers.length; k++) {
+    const p = M.pushers[k];
+    if (x > p.x0 && x < p.x1 && z > p.back + pz[k] && z < p.front + pz[k] && y > p.top - 0.3) return dz[k];
+  }
+  return 0;
+}
+
 /** A physics step has arrived: it becomes "now", and "now" becomes "before". */
 function onState(m) {
   prevX.set(curX); prevQ.set(curQ);
   const seen = new Uint8Array(MAXC);
+  const dz = m.pushers.map((z, k) => z - curPusher[k]);
   for (let i = 0; i < m.n; i++) {
     const s = m.slots[i], o = i * 7, i3 = s * 3, i4 = s * 4;
-    curX[i3] = m.xf[o]; curX[i3 + 1] = m.xf[o + 1]; curX[i3 + 2] = m.xf[o + 2];
-    curQ[i4] = m.xf[o + 3]; curQ[i4 + 1] = m.xf[o + 4]; curQ[i4 + 2] = m.xf[o + 5]; curQ[i4 + 3] = m.xf[o + 6];
+    steady.apply(s, m.xf, o, pose, 0, !live[s], rideOf(m.xf[o], m.xf[o + 1], m.xf[o + 2], m.pushers, dz));
+    curX[i3] = pose[0]; curX[i3 + 1] = pose[1]; curX[i3 + 2] = pose[2];
+    curQ[i4] = pose[3]; curQ[i4 + 1] = pose[4]; curQ[i4 + 2] = pose[5]; curQ[i4 + 3] = pose[6];
     if (!live[s]) {                       // just appeared: no streak from wherever it was before
       prevX[i3] = curX[i3]; prevX[i3 + 1] = curX[i3 + 1]; prevX[i3 + 2] = curX[i3 + 2];
       prevQ.set(curQ.subarray(i4, i4 + 4), i4);
@@ -416,8 +430,8 @@ function onState(m) {
   const nb = m.balls ? m.balls.length / 8 : 0, seenB = [];
   for (let i = 0; i < nb; i++) {
     const s = m.balls[i * 8], o = s * 7;
-    const fresh = !ballSlots.includes(s);
-    for (let a = 0; a < 7; a++) ballCur[o + a] = m.balls[i * 8 + 1 + a];
+    const fresh = !ballSlots.includes(s), j = i * 8 + 1;
+    steadyBalls.apply(s, m.balls, j, ballCur, o, fresh, rideOf(m.balls[j], m.balls[j + 1], m.balls[j + 2], m.pushers, dz));
     if (fresh) ballPrev.set(ballCur.subarray(o, o + 7), o);     // just appeared: no streak
     seenB.push(s);
   }
@@ -460,7 +474,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=18', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=19', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
