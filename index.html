@@ -57,13 +57,13 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=22';
-import { CFG } from './config.js?v=22';
-import { machineFromLayout } from './machine.js?v=22';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=22';
-import { createAudio } from './audio.js?v=22';
-import { createWheels, paintWheel } from './wheels.js?v=22';
-import { createSteady } from './steady.js?v=22';
+import { loadRapier, simd } from './engine.js?v=23';
+import { CFG } from './config.js?v=23';
+import { machineFromLayout } from './machine.js?v=23';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=23';
+import { createAudio } from './audio.js?v=23';
+import { createWheels, paintWheel } from './wheels.js?v=23';
+import { createSteady } from './steady.js?v=23';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -349,6 +349,21 @@ for (const o of M.outlets || []) {
   scene.add(hole);
 }
 
+// The coin entry: an outlet over the drop box. Your coin comes straight out
+// of it, down between the wipers - it starts inside (field-physics release),
+// so the first you see of it is it dropping out.
+if (M.chute) {
+  const C = M.chute, G = C.guards, R = CFG.coinR;
+  const half = (G.spacing - G.width) / 2 + 0.2;          // the gap between the wiper pivots, and a little
+  const y0 = C.inY - R - 0.1, y1 = Math.max(C.inY + R + 0.6, M.bounds.hi[1] + 1);
+  const z0 = C.zc - 1.2, z1 = C.zc + 1.2;
+  scene.add(boxMesh({ c: [C.xc, (y0 + y1) / 2, (z0 + z1) / 2], h: [half, (y1 - y0) / 2, (z1 - z0) / 2] }, 'coinout'));
+  const hole = new THREE.Mesh(new THREE.PlaneGeometry(half * 2 - 0.5, z1 - z0 - 0.5), new THREE.MeshBasicMaterial({ color: 0x0a0618 }));
+  hole.rotation.x = Math.PI / 2;                          // its opening, underneath
+  hole.position.set(C.xc, y0 - 0.02, (z0 + z1) / 2);
+  scene.add(hole);
+}
+
 // a cabinet underneath, with strips of light
 {
   const B = M.bounds, w = B.hi[0] - B.lo[0] + 4.8, d = B.hi[2] - B.lo[2] + 6, h = 17;
@@ -474,7 +489,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=22', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=23', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });

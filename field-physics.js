@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=22';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=22';
+import { CFG } from './config.js?v=23';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=23';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -462,32 +462,15 @@ export function createField(RAPIER, M, opts = {}) {
   const STACK = CFG.coinT;                 // one coin's thickness in a stack, cm
 
   const active = [];
-  const slot = [];                         // coins dropped in, waiting for the wipers
-  // The first coin waiting shows in the slot straight away: the player sees
-  // their coin go in the moment they tap, even when the wipers make it wait.
-  // (Appearing only when let go, it came up to half a second after the drop
-  // sound.) It rolls in along the top of the box, above the arms' reach, and
-  // gets to where it drops just as the wipers are ready - held still there
-  // instead, it looked caught on something.
-  const ROLL = 8;                          // cm/s it rolls in at
-  const holdNext = () => { if (slot.length && !slot[0].coin) slot[0].coin = f.hold(slot[0].anyway ? 0 : untilReady()); };
-  // how long until the wipers are swung out far enough to meet a coin
-  // (swinging back toward straight down, an arm moves away from the coin).
-  // From the next step on: that is when the slot next looks.
-  const untilReady = () => {
-    const G = ch.guards, dt = world.timestep;
-    for (let k = 1; k < 60; k++) {
-      const a = Math.abs(wiperAngle(f.elapsed + k * dt)), out = Math.abs(wiperAngle(f.elapsed + (k + 1) * dt)) > a;
-      if (a >= G.releaseAny || (out && a >= G.release)) return k * dt;
-    }
-    return 0;
-  };
-  // where a held coin is, wait s before it drops: further out, turned back as it rolls
-  const rollPose = (c, wait) => {
-    const R = c.roll, d = R.dir * wait * ROLL, th = -R.dir * wait * ROLL / CFG.coinR / 2, s = Math.SQRT1_2;
-    const cz = Math.cos(th), sz = Math.sin(th);            // a turn th about z, after standing it in the slot
-    return [R.x + d, ch.inY, ch.zc, s * cz, s * sz, s * sz, s * cz];
-  };
+  const slot = [];                         // coins dropped in, waiting for the one before to clear the outlet
+  // Coins drop the moment they are put in, out of the outlet over the box, at
+  // a random point in the wipers' swing - about 3 in 4 are touched by one on
+  // the way down. (Kept back until the wipers were swung out, nearly all were,
+  // but a coin then showed up to half a second after the tap - and held in
+  // view meanwhile, it looked stuck.) Only one at a time: the next waits until
+  // the last is a coin's height clear of the outlet, a tenth of a second.
+  let lastIn = null;
+  const slotClear = () => !lastIn || !lastIn.live || lastIn.body.translation().y < ch.inY - 2 * CFG.coinR - 0.2;
   const D = M.zones.drop;
   const midX = (M.bounds.lo[0] + M.bounds.hi[0]) / 2;
   const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
@@ -602,13 +585,18 @@ export function createField(RAPIER, M, opts = {}) {
       c.inChute = 0;
       c.safe = null;
       if (c.ccd) { c.body.enableCcd(false); c.ccd = false; }
+      // A coin is reused once it has paid out, and it may have been going fast
+      // then: its look-ahead for collisions was still wide, and in the drop box
+      // a reused coin bounced off the pins differently from a fresh one -
+      // after a while of play, yellow got 3 times its share.
+      if (c.ahead) { c.body.setSoftCcdPrediction(0); c.ahead = false; }
+      c.edgeSince = undefined;
       active.push(c);
       if (frozen) doFreeze(c);
       return c;
     },
 
     park(c) {
-      if (c.held) { c.held = false; for (const e of slot) if (e.coin === c) e.coin = null; }
       square(c);
       planar(c, false);
       if (c.frozen) { grid.get(c.cell)?.delete(c); c.frozen = false; f.frozen--; }
@@ -677,28 +665,20 @@ export function createField(RAPIER, M, opts = {}) {
       return n;
     },
 
-    /** Drop a coin into the slot. It shows in the slot at once, and falls
-     *  into the box when the wipers are ready for it (see machine.js,
-     *  guards.release) - straight away, or up to half a second later.
-     *  Returns false if the machine is full. */
+    /** Drop a coin in: it comes out of the outlet over the box at once (or,
+     *  right behind another, a tenth of a second later). Returns false if
+     *  the machine is full. */
     insert(onWake) {
       if (!ch) return false;
       if (active.length + slot.length >= coins.length) return false;
-      slot.push({ onWake, anyway: Math.random() < ch.guards.anyway, at: f.elapsed });
-      holdNext();
+      if (!slot.length && slotClear()) lastIn = f.release(onWake);
+      else slot.push({ onWake });
       return true;
     },
 
     /** Let a coin into the top of the drop box, standing on its edge,
      *  facing the glass. */
     release(onWake) {
-      const c = f.hold();
-      return c && f.letGo(c, onWake);
-    },
-
-    /** Put a coin at the top of the box, standing in the slot, to roll in
-     *  for wait s and be held there until let go. */
-    hold(wait = 0) {
       if (!ch) return null;
       const c = f.take();
       if (!c) return null;
@@ -708,21 +688,8 @@ export function createField(RAPIER, M, opts = {}) {
       // brush it even when both are near straight down
       const G = ch.guards, room = Math.max(0, (G.spacing - G.width) / 2 - CFG.coinR - 0.1);
       const off = Math.min(1.1, room) * (0.35 + Math.random() * 0.65) * (Math.random() < 0.5 ? -1 : 1);
-      c.roll = { x: ch.xc + off, dir: off < 0 ? -1 : 1, until: f.elapsed + wait };
-      f.wakeAt(c, rollPose(c, wait));
-      c.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
-      c.held = true;
-      return c;
-    },
-
-    /** Let a held coin fall into the box. */
-    letGo(c, onWake) {
-      c.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-      // from a standstill, as before it rolled in: carrying the roll's speed
-      // and spin, coins came off the wipers wider and missed the middle wheel
-      c.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      c.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      c.held = false;
+      f.wakeAt(c, [ch.xc + off, ch.inY, ch.zc, s, 0, 0, s]);
+      c.body.setLinvel({ x: 0, y: -G.drift, z: 0 }, true);     // out of the outlet already falling
       c.wheel = null;
       c.exit = null;
       if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; c.outAt = 0; }
@@ -827,11 +794,6 @@ export function createField(RAPIER, M, opts = {}) {
       }
       const wa = wiperAngle();
       for (const g of guards) g.body.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(wa / 2), w: Math.cos(wa / 2) });
-      for (const e of slot) if (e.coin) {
-        const p = rollPose(e.coin, Math.max(0, e.coin.roll.until - f.elapsed));
-        e.coin.body.setNextKinematicTranslation({ x: p[0], y: p[1], z: p[2] });
-        e.coin.body.setNextKinematicRotation({ x: p[3], y: p[4], z: p[5], w: p[6] });
-      }
       world.step(events);
       stepTowers(onCollected);
 
@@ -885,15 +847,8 @@ export function createField(RAPIER, M, opts = {}) {
         if (t.y < -10) { f.ballsLost++; parkBall(b); }
       }
 
-      // the slot: let the next coin go when the wipers are swung out to meet it
-      // (swinging back toward straight down, an arm moves away from the coin)
-      const outward = Math.abs(wiperAngle(f.elapsed + world.timestep)) > Math.abs(wa);
-      const ready = Math.abs(wa) >= ch.guards.releaseAny || (outward && Math.abs(wa) >= ch.guards.release);
-      if (slot.length && (ready || slot[0].anyway) && !(slot[0].coin && f.elapsed < slot[0].coin.roll.until - 1e-6)) {
-        const s = slot.shift();
-        if (s.coin) f.letGo(s.coin, s.onWake); else f.release(s.onWake);
-        holdNext();
-      }
+      // the next coin dropped in, once the last is clear of the outlet
+      if (slot.length && slotClear()) lastIn = f.release(slot.shift().onWake);
 
       // thaw whatever each pusher's face is about to reach
       if (freeze) {
@@ -928,7 +883,7 @@ export function createField(RAPIER, M, opts = {}) {
       f.moving = 0;
       for (let i = active.length - 1; i >= 0; i--) {
         const c = active[i];
-        if (c.frozen || c.held) continue;
+        if (c.frozen) continue;
         f.moving++;
         const t = c.body.translation();
         if (onMoved) onMoved(c, t, c.body.rotation());
@@ -1077,10 +1032,8 @@ export function createField(RAPIER, M, opts = {}) {
             if (f.elapsed - c.edgeSince > EDGE_TIP) {
               // tip it over its face - the way it can fall - toward the middle
               // and front of the machine, so away from whatever it leans on.
-              // Harder each time it ends up standing again: one leaning on the
-              // front glass at the foot of a ramp has to go over uphill, and a
-              // gentle shake only rocked it back against the glass, for good.
-              const m = c.collider.mass(), k = 6 * Math.min(4, (c.tips = (c.tips || 0) + 1));
+              // (Harder each time it stood up again shook the piles round it.)
+              const m = c.collider.mass(), k = 6;
               let ax = 2 * (q.x * q.y - q.w * q.z), az = 2 * (q.y * q.z + q.w * q.x);
               const len = Math.hypot(ax, az) || 1;
               ax /= len; az /= len;
@@ -1089,7 +1042,7 @@ export function createField(RAPIER, M, opts = {}) {
               c.edgeSince = undefined;
               f.toppled++;
             }
-          } else { c.edgeSince = undefined; if (!standing) c.tips = 0; }
+          } else c.edgeSince = undefined;
         }
         if (!freeze) continue;
         const w = c.body.angvel();

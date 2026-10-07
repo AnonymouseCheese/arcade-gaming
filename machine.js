@@ -413,12 +413,11 @@ export function dropBox(pushers, statics) {
   const panelBottom = centre.top - 2, panelTop = topY + 1.2;
   const panel = { kind: 'chute', c: [xc, (panelBottom + panelTop) / 2, (centre.back + back) / 2],
                   h: [(x1 - x0) / 2, (panelTop - panelBottom) / 2, (back - centre.back) / 2], mu: 0.08 };
-  // The rule: the coin drops between the wipers and almost always touches
-  // one; only very rarely does it fall between them untouched. Tilted, two
-  // parallel arms close up on each other: at this spacing and swing there is
-  // still room for a coin between them at full tilt (pivots 4.1 cm apart
-  // pinched coins past 41 degrees). The rule is kept by the slot's timing
-  // (see `release`), not by crowding the arms.
+  // The coin drops between the wipers, the moment it is put in; most are
+  // touched by one on the way down. Tilted, two parallel arms close up on
+  // each other: at this spacing and swing there is still room for a coin
+  // between them at full tilt (pivots 4.1 cm apart pinched coins past 41
+  // degrees).
   const guards = {
     // The pivots sit far enough down that a coin let in at the top is clear
     // of both arms whatever their angle. Higher up, an arm swung right out
@@ -434,14 +433,8 @@ export function dropBox(pushers, statics) {
     // full speed it was through in a tenth of a second - the arms barely
     // moved meanwhile, and half the coins fell between them untouched.
     drift: +(globalThis.WIPER_DRIFT ?? 25),     // cm/s - fast enough that a coin rolls off an arm cleanly
-    // The slot lets a coin go when the arms are swung out far enough to meet
-    // it - a fraction of a second's wait at most, and the player's tap is at a
-    // random moment anyway. Swinging slowly, the arms spend long enough near
-    // straight down that 1 coin in 4-5 slipped through untouched otherwise.
-    // One drop in 25 goes regardless: now and then a clean pass-through.
-    release: +(globalThis.WIPER_RELEASE ?? 0.3),   // radians from straight down, and swinging further out...
-    releaseAny: 0.7,          // ...or this far out, whichever way they are swinging
-    anyway: 0.04,             // chance a coin is let go whatever the arms are doing
+    // A coin drops the moment it is put in, wherever the arms are: about 3
+    // in 4 are touched on the way down (the owner's choice over a wait).
   };
   // a new coin's lowest point is above the highest any arm can reach
   const inY = guards.pivotY + S / 2 + guards.width / 2 + 0.2;
@@ -502,7 +495,7 @@ function dropBoard(x0, x1, xc, exitY, topY, back, gap, G) {
   // spread coins most evenly across the ways out.
   const pin = 0.3, half = W / 2;
   const pins = [];
-  for (const [across, down] of [[0.0, 13.3], [0.223, 10.01], [0.567, 3.04], [0.718, 10.41], [0.795, 13.66]]) {     // searched again: Rapier 0.21, 25 steps a second; centre pin set for 12 sub-steps (it decides how rare yellow is)
+  for (const [across, down] of [[0.0, 10.6], [0.18, 10.01], [0.567, 3.04], [0.718, 10.41], [0.795, 13.66]]) {     // searched again: Rapier 0.21, 25 steps a second, coins dropped the moment they are put in; the centre pin and the pair beside it decide how rare yellow is
     for (const k of across ? [-1, 1] : [0]) pins.push({ x: xc + k * half * across, y: topY - down, r: pin });
   }
   return { wheels, pins, zA, zB };      // plain data: it is sent to the drawing thread as it is
