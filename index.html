@@ -57,12 +57,12 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=16';
-import { CFG } from './config.js?v=16';
-import { machineFromLayout } from './machine.js?v=16';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=16';
-import { createAudio } from './audio.js?v=16';
-import { createWheels, paintWheel } from './wheels.js?v=16';
+import { loadRapier, simd } from './engine.js?v=17';
+import { CFG } from './config.js?v=17';
+import { machineFromLayout } from './machine.js?v=17';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=17';
+import { createAudio } from './audio.js?v=17';
+import { createWheels, paintWheel } from './wheels.js?v=17';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -460,7 +460,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=16', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=17', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });

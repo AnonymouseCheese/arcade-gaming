@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=16';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=16';
+import { CFG } from './config.js?v=17';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=17';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -63,8 +63,8 @@ const MAX_BALLS = 24;
 // Like a real hopper, the coin supplies only have so much to give: with this many
 // coins in play they hold their queue until some have paid out. Prizes cannot
 // pile coins up past what a phone can simulate: on Rapier 0.21 SIMD at 25 steps
-// a second (budget 40 ms), ~24 ms a step at 1,180 coins, ~30 at 1,290, ~33 at
-// 1,330 (test/tune.mjs). The cabinet overflows not far past that.
+// a second with 8 sub-steps (budget 40 ms), ~20 ms a step at 1,280 coins and
+// ~21 at 1,380 on the PC, alone (test/tune.mjs). The cabinet overflows not far past that.
 const FIELD_CAP = 1400;
 const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
 export const BALL_RADIUS = BALL_R;
@@ -111,7 +111,9 @@ export const FREEZE = {
 
 export function createField(RAPIER, M, opts = {}) {
   const hz      = opts.hz ?? CFG.physicsHz;
-  const iters   = opts.iterations ?? 4;
+  // 8 solver sub-steps: at 25 steps a second, 4 left resting coins visibly
+  // shaking (owner saw it on all three static fields, and balls shaking with them)
+  const iters   = opts.iterations ?? 8;
   const shape   = opts.shape ?? 'box';
   // Off by default. Measured: under play nearly the whole deck carpet is
   // creeping, and every way of freezing coins that saved real time either
@@ -128,7 +130,7 @@ export function createField(RAPIER, M, opts = {}) {
   // Rapier 0.21 (the engine.js builds) has a newer solver with its own
   // tolerances. This machine is in cm, the engine assumes metres: told the
   // unit is 10 and given stiffer contacts, it needs the safety net least and
-  // the pile still creeps (test/archive/engine notes in PLAN.md).
+  // the pile still creeps (measured).
   const newSolver = 'contact_natural_frequency' in Object.getPrototypeOf(world.integrationParameters);
   if (newSolver) {
     world.lengthUnit = opts.lengthUnit ?? 10;
