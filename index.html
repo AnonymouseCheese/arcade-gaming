@@ -27,12 +27,17 @@
   button.go { background: var(--gold); color: #2a1a00; border-color: var(--gold); font-size: 17px; padding: 15px 26px; }
   button[aria-pressed="true"] { background: var(--accent); color: #04151c; border-color: var(--accent); }
   #boot { position: fixed; inset: 0; display: grid; place-items: center; z-index: 5; color: var(--muted); }
+  #toast { position: fixed; left: 50%; top: 96px; transform: translate(-50%, -10px); z-index: 4; pointer-events: none;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 18px;
+    font: 800 18px/1.2 inherit; font-family: inherit; opacity: 0; transition: opacity .25s, transform .25s; white-space: nowrap; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
   :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="boot">Loading the machine…</div>
+<div id="toast"></div>
 <div id="hud">
   <div class="card stat">
     <div><small>Coins</small><b id="bank">0</b></div>
@@ -53,10 +58,11 @@
 <script type="module">
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=11';
-import { machineFromLayout } from './machine.js?v=11';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=11';
-import { createAudio } from './audio.js?v=11';
+import { CFG } from './config.js?v=12';
+import { machineFromLayout } from './machine.js?v=12';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=12';
+import { createAudio } from './audio.js?v=12';
+import { createWheels, paintWheel } from './wheels.js?v=12';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -237,16 +243,20 @@ if (M.chute?.board) {
   const C = M.chute, B = C.board, face = C.scrapeZ;          // the back panel's face
   for (const w of B.wheels) {
     const hex = WHEEL_HEX[w.colour];
-    // its face, printed on the panel behind
+    // its face, printed on the panel behind: six slices, one of them lit
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
     const disc = new THREE.Mesh(new THREE.CircleGeometry(w.r + 0.6, 48),
-      Mat({ color: new THREE.Color(hex).multiplyScalar(0.45), emissive: hex, emissiveIntensity: 0.12, roughness: 0.8, metalness: 0,
-            envMapIntensity: 0.2 }));
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
     disc.position.set(w.cx, w.cy, face + 0.02);
     const hub = new THREE.Mesh(new THREE.RingGeometry(w.r + 0.6, w.r + 0.95, 48), chrome);
     hub.position.set(w.cx, w.cy, face + 0.03);
     scene.add(disc, hub);
     // the two raised halves either side of the channel, the depth of the slot
-    const mat = Mat({ color: hex, emissive: hex, emissiveIntensity: 0.45, metalness: 0.1, roughness: 0.35, envMapIntensity: 0.4 });
+    const mat = Mat({ color: hex, emissive: hex, emissiveIntensity: 0.45, metalness: 0.1, roughness: 0.35, envMapIntensity: 0.4,
+                      transparent: true, opacity: 0.38, depthWrite: false });
     for (const F of w.flat) {
       const geo = new THREE.ExtrudeGeometry(new THREE.Shape(F.map(([x, y]) => new THREE.Vector2(x, y))),
                                             { depth: C.gap * 0.95, bevelEnabled: false });
@@ -254,7 +264,7 @@ if (M.chute?.board) {
       m.position.z = face;
       scene.add(m);
     }
-    wheelLook.push({ disc, mat, lit: 0 });
+    wheelLook.push({ disc, mat, lit: 0, hex, canvas, ctx: canvas.getContext('2d'), tex, glow: 0 });
   }
   for (const p of B.pins) {
     const pin = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, C.gap + 0.3, 14), chrome);
@@ -267,6 +277,55 @@ if (M.chute?.board) {
   }
 }
 let wheelCounts = [0, 0, 0];
+
+// The wheels' lights: each coin through a wheel moves its light on a slice;
+// stopping on a prize wins it. Coin prizes: ?prize=N coins from each supply.
+const PRIZE_COINS = Number.isFinite(+q.get('prize')) && q.get('prize') !== null ? +q.get('prize') : 5;
+const WHEEL_NAME = ['Red', 'Yellow', 'Green'];
+const toast = document.getElementById('toast');
+let toastTimer = 0;
+function say(text) {
+  toast.textContent = text;
+  toast.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('on'), 2200);
+}
+const wheels = createWheels((i, kind) => {
+  if (kind === 'coins') { sim.supply(PRIZE_COINS); say(`${WHEEL_NAME[i]} wheel: ${PRIZE_COINS * 2} coins!`); }
+  else { sim.ball(); say(`${WHEEL_NAME[i]} wheel: balls!`); }
+  if (wheelLook[i]) wheelLook[i].glow = 1;
+});
+const repaint = i => { const w = wheelLook[i]; if (!w) return; paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow); w.tex.needsUpdate = true; };
+wheelLook.forEach((_, i) => repaint(i));
+
+// Beside each coin supply, an LED counter: the coins still to come out.
+const ledFor = (M.outlets || []).filter(o => o.kind === 'coin').map(o => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 64;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const led = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+  // on the wall face beside the outlet, at the same height
+  led.position.set(o.mouth[0] + o.across[0] * (o.width / 2 + 2.3), o.mouth[1], o.mouth[2] - o.dir[2] * 2.35);
+  led.lookAt(led.position.x + o.dir[0], led.position.y, led.position.z + o.dir[2]);
+  scene.add(led);
+  return { ctx: canvas.getContext('2d'), tex, shown: -1 };
+});
+function paintLed(L, n) {
+  if (L.shown === n) return;
+  L.shown = n;
+  const g = L.ctx;
+  g.fillStyle = '#1a0306'; g.fillRect(0, 0, 128, 64);
+  g.strokeStyle = '#5a1018'; g.lineWidth = 4; g.strokeRect(2, 2, 124, 60);
+  g.font = 'bold 46px "Courier New", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,40,40,0.12)'; g.fillText('88', 64, 35);           // the unlit segments
+  g.shadowColor = '#ff2020'; g.shadowBlur = n ? 14 : 4;
+  g.fillStyle = n ? '#ff3b3b' : '#7a1c1c';
+  g.fillText(String(Math.min(99, n)).padStart(2, ' '), 64, 35);
+  g.shadowBlur = 0;
+  L.tex.needsUpdate = true;
+}
+ledFor.forEach(L => paintLed(L, 0));
 
 // the outlets' mouths: a dark opening, so coins and balls come out of something
 for (const o of M.outlets || []) {
@@ -341,6 +400,7 @@ function onState(m) {
   prevPusher = curPusher; curPusher = m.pushers;
   guards = m.guards;
   lastStats = m.stats;
+  (m.stats?.supplyLeft || []).forEach((n, i) => { if (ledFor[i]) paintLed(ledFor[i], n); });
   ballPrev.set(ballCur);
   const nb = m.balls ? m.balls.length / 8 : 0, seenB = [];
   for (let i = 0; i < nb; i++) {
@@ -352,7 +412,9 @@ function onState(m) {
   }
   ballSlots = seenB;
   if (m.stats?.wheels) {
-    m.stats.wheels.forEach((n, i) => { if (n > wheelCounts[i] && wheelLook[i]) { wheelLook[i].lit = 1; } });
+    m.stats.wheels.forEach((n, i) => {
+      for (let k = wheelCounts[i]; k < n; k++) { if (wheelLook[i]) wheelLook[i].lit = 1; wheels.advance(i); repaint(i); }
+    });
     wheelCounts = m.stats.wheels.slice();
   }
   payQueue += m.paid;
@@ -387,7 +449,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=11', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=12', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -492,6 +554,8 @@ document.getElementById('testCoins').addEventListener('click', e => { e.stopProp
 document.getElementById('testBall').addEventListener('click', e => { e.stopPropagation(); sim.ball(); });
 // ?fire=1 fires both once, shortly after loading (for testing)
 if (q.get('fire') === '1') setTimeout(() => { sim.supply(10); sim.ball(); }, 400);
+// ?advance=N moves every wheel's light on N slices shortly after loading (for testing)
+if (q.has('advance')) setTimeout(() => { for (let k = 0; k < +q.get('advance'); k++) wheelLook.forEach((_, i) => { wheels.advance(i); repaint(i); }); }, 400);
 const autoBtn = document.getElementById('auto');
 autoBtn.setAttribute('aria-pressed', String(auto));
 autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); });
@@ -538,7 +602,12 @@ function frame(now) {
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
-    w.disc.material.emissiveIntensity = 0.12 + w.lit * 1.6;
+    // a prize won: the lit slice flashes for a moment
+    if (w.glow > 0) {
+      w.glow = Math.max(0, w.glow - dt * 0.8);
+      paintWheel(w.ctx, 256, w.hex, wheels.lit[wheelLook.indexOf(w)], w.glow * (0.6 + 0.4 * Math.sin(performance.now() / 70)));
+      w.tex.needsUpdate = true;
+    }
   }
 
   const f = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));

@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=11';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=11';
+import { CFG } from './config.js?v=12';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=12';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -46,12 +46,12 @@ const UNSTICK = 0.03;
 // quick stream, each a little off straight, up or down and to either side,
 // the way a real hopper does; most land on the side pusher below it. A ball
 // outlet lets a ball roll gently out, so balls gather by the outer wall.
-const SHOT_GAP = +(globalThis.SHOT_GAP ?? 1 / 3);            // s between coins out of one coin supply: 3 a second
-const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 65);           // cm/s, give or take 15%: ~83% land on the pusher
+const SHOT_GAP = +(globalThis.SHOT_GAP ?? 0.2);              // s between coins out of one coin supply: 5 a second
+const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 115);          // cm/s, give or take 15%: most clear the pusher and land on the static field
 const SHOT_UP = [-8, +(globalThis.SHOT_UP ?? 18)];           // degrees above level, lowest..highest
 const SHOT_SIDE = +(globalThis.SHOT_SIDE ?? 30);             // degrees either side of straight out: a 60 degree fan; at 40 most still landed mid-pusher
 // Some coins catch the outlet's lip on the way out and just drop, by the wall.
-const SHOT_DRIBBLE = +(globalThis.SHOT_DRIBBLE ?? 0.2);       // share of coins
+const SHOT_DRIBBLE = +(globalThis.SHOT_DRIBBLE ?? 0.12);      // share of coins
 const DRIBBLE_SPEED = [8, 22];                                // cm/s
 // ...and they come out every which way: on their edge rolling, flat, slanted.
 const SHOT_ON_EDGE = 0.25, SHOT_SLANT = 0.25;                 // shares; the rest come out flat
@@ -126,7 +126,7 @@ export function createField(RAPIER, M, opts = {}) {
   const add = (desc, body, kind, mu = CFG.deckFriction) =>
     kindOf.set(world.createCollider(desc.setFriction(mu).setRestitution(CFG.restitution), body).handle, kind);
 
-  for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : s.kind === 'deck' ? CFG.playfieldFriction : CFG.deckFriction));
+  for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : (s.kind === 'deck' || s.playfield) ? CFG.playfieldFriction : CFG.deckFriction));
   // (the board's wheels are slippery, so a coin on a funnel slides in)
   for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind,
                                h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction);

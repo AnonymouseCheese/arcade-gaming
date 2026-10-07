@@ -273,9 +273,27 @@ export function machineFromLayout(layout, opts = {}) {
 
   statics.push(...stopBlocks(statics, lo, hi, drop.trayY - 1));
 
+  // Broad, flat wall pieces with open space on top are floors coins get
+  // pushed across - the side stages' static fields. They get the slick
+  // playfield surface, not a wall's grip: with a wall's grip, coins landing
+  // there climbed up onto the pile instead of pushing it on.
+  for (const s of statics) if (s.kind === 'wall' && isFloor(s, cells)) s.playfield = true;
+
   const outlets = findOutlets(cells, (lo[0] + hi[0]) / 2);
 
   return { statics, hulls, pushers, rails, chute, outlets, zones: { drop }, bounds: { lo, hi } };
+}
+
+/** At least 3 blocks across both ways, and mostly open on top. */
+function isFloor(s, cells) {
+  const x0 = s.c[0] - s.h[0], x1 = s.c[0] + s.h[0], z0 = s.c[2] - s.h[2], z1 = s.c[2] + s.h[2];
+  if ((x1 - x0) / S < 3 || (z1 - z0) / S < 3) return false;
+  const above = Math.round((s.c[1] + s.h[1]) / S);
+  let open = 0, all = 0;
+  for (let i = Math.round(x0 / S + 0.5); i <= Math.round(x1 / S - 0.5); i++) {
+    for (let k = Math.round(z0 / S); k < Math.round(z1 / S); k++) { all++; if (!cells.has(key(i, above, k))) open++; }
+  }
+  return open / all >= 0.5;
 }
 
 /**
