@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=21';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=21';
+import { CFG } from './config.js?v=22';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=22';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -463,11 +463,31 @@ export function createField(RAPIER, M, opts = {}) {
 
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the wipers
-  // The first coin waiting shows in the slot straight away, held at the top
-  // of the box: the player sees their coin go in the moment they tap, even
-  // when the wipers make it wait. Before, it appeared up to half a second
-  // after the drop sound.
-  const holdNext = () => { if (slot.length && !slot[0].coin) slot[0].coin = f.hold(); };
+  // The first coin waiting shows in the slot straight away: the player sees
+  // their coin go in the moment they tap, even when the wipers make it wait.
+  // (Appearing only when let go, it came up to half a second after the drop
+  // sound.) It rolls in along the top of the box, above the arms' reach, and
+  // gets to where it drops just as the wipers are ready - held still there
+  // instead, it looked caught on something.
+  const ROLL = 8;                          // cm/s it rolls in at
+  const holdNext = () => { if (slot.length && !slot[0].coin) slot[0].coin = f.hold(slot[0].anyway ? 0 : untilReady()); };
+  // how long until the wipers are swung out far enough to meet a coin
+  // (swinging back toward straight down, an arm moves away from the coin).
+  // From the next step on: that is when the slot next looks.
+  const untilReady = () => {
+    const G = ch.guards, dt = world.timestep;
+    for (let k = 1; k < 60; k++) {
+      const a = Math.abs(wiperAngle(f.elapsed + k * dt)), out = Math.abs(wiperAngle(f.elapsed + (k + 1) * dt)) > a;
+      if (a >= G.releaseAny || (out && a >= G.release)) return k * dt;
+    }
+    return 0;
+  };
+  // where a held coin is, wait s before it drops: further out, turned back as it rolls
+  const rollPose = (c, wait) => {
+    const R = c.roll, d = R.dir * wait * ROLL, th = -R.dir * wait * ROLL / CFG.coinR / 2, s = Math.SQRT1_2;
+    const cz = Math.cos(th), sz = Math.sin(th);            // a turn th about z, after standing it in the slot
+    return [R.x + d, ch.inY, ch.zc, s * cz, s * sz, s * sz, s * cz];
+  };
   const D = M.zones.drop;
   const midX = (M.bounds.lo[0] + M.bounds.hi[0]) / 2;
   const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
@@ -676,8 +696,9 @@ export function createField(RAPIER, M, opts = {}) {
       return c && f.letGo(c, onWake);
     },
 
-    /** Put a coin at the top of the box, standing in the slot, held there. */
-    hold() {
+    /** Put a coin at the top of the box, standing in the slot, to roll in
+     *  for wait s and be held there until let go. */
+    hold(wait = 0) {
       if (!ch) return null;
       const c = f.take();
       if (!c) return null;
@@ -687,7 +708,8 @@ export function createField(RAPIER, M, opts = {}) {
       // brush it even when both are near straight down
       const G = ch.guards, room = Math.max(0, (G.spacing - G.width) / 2 - CFG.coinR - 0.1);
       const off = Math.min(1.1, room) * (0.35 + Math.random() * 0.65) * (Math.random() < 0.5 ? -1 : 1);
-      f.wakeAt(c, [ch.xc + off, ch.inY, ch.zc, s, 0, 0, s]);
+      c.roll = { x: ch.xc + off, dir: off < 0 ? -1 : 1, until: f.elapsed + wait };
+      f.wakeAt(c, rollPose(c, wait));
       c.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
       c.held = true;
       return c;
@@ -696,6 +718,10 @@ export function createField(RAPIER, M, opts = {}) {
     /** Let a held coin fall into the box. */
     letGo(c, onWake) {
       c.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      // from a standstill, as before it rolled in: carrying the roll's speed
+      // and spin, coins came off the wipers wider and missed the middle wheel
+      c.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      c.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       c.held = false;
       c.wheel = null;
       c.exit = null;
@@ -801,6 +827,11 @@ export function createField(RAPIER, M, opts = {}) {
       }
       const wa = wiperAngle();
       for (const g of guards) g.body.setNextKinematicRotation({ x: 0, y: 0, z: Math.sin(wa / 2), w: Math.cos(wa / 2) });
+      for (const e of slot) if (e.coin) {
+        const p = rollPose(e.coin, Math.max(0, e.coin.roll.until - f.elapsed));
+        e.coin.body.setNextKinematicTranslation({ x: p[0], y: p[1], z: p[2] });
+        e.coin.body.setNextKinematicRotation({ x: p[3], y: p[4], z: p[5], w: p[6] });
+      }
       world.step(events);
       stepTowers(onCollected);
 
@@ -858,7 +889,7 @@ export function createField(RAPIER, M, opts = {}) {
       // (swinging back toward straight down, an arm moves away from the coin)
       const outward = Math.abs(wiperAngle(f.elapsed + world.timestep)) > Math.abs(wa);
       const ready = Math.abs(wa) >= ch.guards.releaseAny || (outward && Math.abs(wa) >= ch.guards.release);
-      if (slot.length && (ready || slot[0].anyway)) {
+      if (slot.length && (ready || slot[0].anyway) && !(slot[0].coin && f.elapsed < slot[0].coin.roll.until - 1e-6)) {
         const s = slot.shift();
         if (s.coin) f.letGo(s.coin, s.onWake); else f.release(s.onWake);
         holdNext();
