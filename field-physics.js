@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=17';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=17';
+import { CFG } from './config.js?v=18';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=18';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -63,8 +63,8 @@ const MAX_BALLS = 24;
 // Like a real hopper, the coin supplies only have so much to give: with this many
 // coins in play they hold their queue until some have paid out. Prizes cannot
 // pile coins up past what a phone can simulate: on Rapier 0.21 SIMD at 25 steps
-// a second with 8 sub-steps (budget 40 ms), ~20 ms a step at 1,280 coins and
-// ~21 at 1,380 on the PC, alone (test/tune.mjs). The cabinet overflows not far past that.
+// a second with 12 sub-steps (budget 40 ms), ~23 ms a step at 1,390 coins on
+// the PC, alone (test/tune.mjs). The cabinet overflows not far past that.
 const FIELD_CAP = 1400;
 const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
 export const BALL_RADIUS = BALL_R;
@@ -111,9 +111,10 @@ export const FREEZE = {
 
 export function createField(RAPIER, M, opts = {}) {
   const hz      = opts.hz ?? CFG.physicsHz;
-  // 8 solver sub-steps: at 25 steps a second, 4 left resting coins visibly
-  // shaking (owner saw it on all three static fields, and balls shaking with them)
-  const iters   = opts.iterations ?? 8;
+  // 12 solver sub-steps: at 25 steps a second, 4 left resting coins visibly
+  // shaking (owner saw it on all three static fields, and balls shaking with
+  // them); 12 keeps piled coins still too. Only with coins never sleeping (below).
+  const iters   = opts.iterations ?? 12;
   const shape   = opts.shape ?? 'box';
   // Off by default. Measured: under play nearly the whole deck carpet is
   // creeping, and every way of freezing coins that saved real time either
@@ -291,10 +292,15 @@ export function createField(RAPIER, M, opts = {}) {
   const inDrop = t => ch && t.y < ch.exitY && t.y > centreTop + 0.6 && Math.abs(t.z - ch.zc) < 2.2 && t.x > ch.x0 && t.x < ch.x1;
 
   /* ---- coins: one pool, made once, recycled forever ---- */
+  // Coins never sleep. When a sleeping pile is woken (a coin lands on it, the
+  // pusher reaches it), Rapier 0.21 gives it no support from the floor for that
+  // one step: the whole pile drops a few mm into the floor at once, the safety
+  // net lifts it back, and the jolt runs through every coin in it.
+  const sleep = opts.sleep ?? false;
   const coins = [], byCollider = new Map();
   for (let i = 0; i < max; i++) {
     const desc = RAPIER.RigidBodyDesc.dynamic().setTranslation(0, -500, 0)
-      .setLinearDamping(CFG.linDamp).setAngularDamping(CFG.angDamp).setCanSleep(true);
+      .setLinearDamping(CFG.linDamp).setAngularDamping(CFG.angDamp).setCanSleep(sleep);
     const body = world.createRigidBody(desc);
     const collider = world.createCollider(coinCollider(RAPIER, shape), body);
     body.setEnabled(false);
@@ -455,7 +461,7 @@ export function createField(RAPIER, M, opts = {}) {
   const balls = [];
   for (let i = 0; i < MAX_BALLS; i++) {
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, -700 - i * 10, 0)
-      .setLinearDamping(CFG.linDamp).setAngularDamping(0.6).setCanSleep(true));
+      .setLinearDamping(CFG.linDamp).setAngularDamping(0.6).setCanSleep(sleep));
     const collider = world.createCollider(RAPIER.ColliderDesc.ball(BALL_R).setDensity(BALL_DENSITY)
       .setFriction(0.3).setRestitution(0.15), body);
     body.setEnabled(false);
