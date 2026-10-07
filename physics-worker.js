@@ -14,10 +14,10 @@
  *  of slots. The arrays are transferred, not copied.
  * ------------------------------------------------------------------ */
 
-import { loadRapier } from './engine.js?v=15';
-import { CFG } from './config.js?v=15';
-import { machineFromLayout } from './machine.js?v=15';
-import { createField, snapshot } from './field-physics.js?v=15';
+import { loadRapier } from './engine.js?v=16';
+import { CFG } from './config.js?v=16';
+import { machineFromLayout } from './machine.js?v=16';
+import { createField, snapshot } from './field-physics.js?v=16';
 
 let RAPIER = null, field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
@@ -27,7 +27,7 @@ self.onmessage = async e => {
   if (m.type === 'init') {
     RAPIER = await loadRapier();
     M = machineFromLayout(m.layout, { stroke: CFG.stroke });
-    field = createField(RAPIER, M, { hz: m.opts?.hz ?? 30, shape: 'box', freeze: m.opts?.freeze ?? false, shot: m.opts?.shot, fieldCap: m.opts?.fieldCap,
+    field = createField(RAPIER, M, { hz: m.opts?.hz ?? CFG.physicsHz, shape: 'box', freeze: m.opts?.freeze ?? false, shot: m.opts?.shot, fieldCap: m.opts?.fieldCap,
                                      freezeMode: m.opts?.freezeMode });
     if (m.pile) field.seedFrom(m.pile);
     clockStart = performance.now();

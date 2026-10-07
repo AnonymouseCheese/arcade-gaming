@@ -502,7 +502,7 @@ function dropBoard(x0, x1, xc, exitY, topY, back, gap, G) {
   // spread coins most evenly across the ways out.
   const pin = 0.3, half = W / 2;
   const pins = [];
-  for (const [across, down] of [[0.342, 12.75], [0.585, 1.91], [0.796, 12.5], [0.829, 5.37]]) {     // searched again on Rapier 0.21
+  for (const [across, down] of [[0.0, 13.94], [0.223, 10.01], [0.567, 3.04], [0.718, 10.41], [0.795, 13.66]]) {     // searched again: Rapier 0.21, 25 steps a second
     for (const k of across ? [-1, 1] : [0]) pins.push({ x: xc + k * half * across, y: topY - down, r: pin });
   }
   return { wheels, pins, zA, zB };      // plain data: it is sent to the drawing thread as it is

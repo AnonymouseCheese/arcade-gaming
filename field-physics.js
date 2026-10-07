@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=15';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=15';
+import { CFG } from './config.js?v=16';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=16';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -62,10 +62,10 @@ const BALL_ROLL = 6;         // cm/s it rolls out at
 const MAX_BALLS = 24;
 // Like a real hopper, the coin supplies only have so much to give: with this many
 // coins in play they hold their queue until some have paid out. Prizes cannot
-// pile coins up past what a phone can simulate: on Rapier 0.21 SIMD, ~23 ms a
-// step at 1,350 coins, ~31 at 1,500, ~40 at 1,700 (budget 33; test/capacity.mjs).
-// The cabinet itself holds no more than ~1,800 before coins overflow.
-const FIELD_CAP = 1350;
+// pile coins up past what a phone can simulate: on Rapier 0.21 SIMD at 25 steps
+// a second (budget 40 ms), ~24 ms a step at 1,180 coins, ~30 at 1,290, ~33 at
+// 1,330 (test/tune.mjs). The cabinet overflows not far past that.
+const FIELD_CAP = 1400;
 const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
 export const BALL_RADIUS = BALL_R;
 const DEG = Math.PI / 180;
@@ -110,7 +110,7 @@ export const FREEZE = {
 };
 
 export function createField(RAPIER, M, opts = {}) {
-  const hz      = opts.hz ?? 30;
+  const hz      = opts.hz ?? CFG.physicsHz;
   const iters   = opts.iterations ?? 4;
   const shape   = opts.shape ?? 'box';
   // Off by default. Measured: under play nearly the whole deck carpet is

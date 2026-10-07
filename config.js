@@ -14,6 +14,9 @@ export const CFG = {
    * the carpet, and friction against the deck is the only thing resisting.
    * Tuned with test/feel.mjs - do not eyeball these. */
   gravity:      -900,
+  // physics steps a second. 25, not 30: each step gets 40 ms on a phone, not
+  // 33, so more coins fit; drawing blends between steps, so it looks no different.
+  physicsHz:    25,
   coinFriction:   0.25,   // coin on coin: 0.55 let coins heap up against the pusher instead of moving on
   deckFriction:   0.80,   // walls, stage floors
   // The open decks coins are pushed across, polished steel. At 0.80 the
