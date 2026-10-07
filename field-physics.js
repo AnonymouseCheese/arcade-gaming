@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=20';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=20';
+import { CFG } from './config.js?v=21';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=21';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -463,6 +463,11 @@ export function createField(RAPIER, M, opts = {}) {
 
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the wipers
+  // The first coin waiting shows in the slot straight away, held at the top
+  // of the box: the player sees their coin go in the moment they tap, even
+  // when the wipers make it wait. Before, it appeared up to half a second
+  // after the drop sound.
+  const holdNext = () => { if (slot.length && !slot[0].coin) slot[0].coin = f.hold(); };
   const D = M.zones.drop;
   const midX = (M.bounds.lo[0] + M.bounds.hi[0]) / 2;
   const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
@@ -583,6 +588,7 @@ export function createField(RAPIER, M, opts = {}) {
     },
 
     park(c) {
+      if (c.held) { c.held = false; for (const e of slot) if (e.coin === c) e.coin = null; }
       square(c);
       planar(c, false);
       if (c.frozen) { grid.get(c.cell)?.delete(c); c.frozen = false; f.frozen--; }
@@ -651,19 +657,27 @@ export function createField(RAPIER, M, opts = {}) {
       return n;
     },
 
-    /** Drop a coin into the slot. It falls into the box when the wipers
-     *  are ready for it (see machine.js, guards.release) - at once, or a
-     *  fraction of a second later. Returns false if the machine is full. */
+    /** Drop a coin into the slot. It shows in the slot at once, and falls
+     *  into the box when the wipers are ready for it (see machine.js,
+     *  guards.release) - straight away, or up to half a second later.
+     *  Returns false if the machine is full. */
     insert(onWake) {
       if (!ch) return false;
       if (active.length + slot.length >= coins.length) return false;
       slot.push({ onWake, anyway: Math.random() < ch.guards.anyway, at: f.elapsed });
+      holdNext();
       return true;
     },
 
     /** Let a coin into the top of the drop box, standing on its edge,
      *  facing the glass. */
     release(onWake) {
+      const c = f.hold();
+      return c && f.letGo(c, onWake);
+    },
+
+    /** Put a coin at the top of the box, standing in the slot, held there. */
+    hold() {
       if (!ch) return null;
       const c = f.take();
       if (!c) return null;
@@ -674,6 +688,15 @@ export function createField(RAPIER, M, opts = {}) {
       const G = ch.guards, room = Math.max(0, (G.spacing - G.width) / 2 - CFG.coinR - 0.1);
       const off = Math.min(1.1, room) * (0.35 + Math.random() * 0.65) * (Math.random() < 0.5 ? -1 : 1);
       f.wakeAt(c, [ch.xc + off, ch.inY, ch.zc, s, 0, 0, s]);
+      c.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
+      c.held = true;
+      return c;
+    },
+
+    /** Let a held coin fall into the box. */
+    letGo(c, onWake) {
+      c.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      c.held = false;
       c.wheel = null;
       c.exit = null;
       if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; c.outAt = 0; }
@@ -837,7 +860,8 @@ export function createField(RAPIER, M, opts = {}) {
       const ready = Math.abs(wa) >= ch.guards.releaseAny || (outward && Math.abs(wa) >= ch.guards.release);
       if (slot.length && (ready || slot[0].anyway)) {
         const s = slot.shift();
-        f.release(s.onWake);
+        if (s.coin) f.letGo(s.coin, s.onWake); else f.release(s.onWake);
+        holdNext();
       }
 
       // thaw whatever each pusher's face is about to reach
@@ -873,7 +897,7 @@ export function createField(RAPIER, M, opts = {}) {
       f.moving = 0;
       for (let i = active.length - 1; i >= 0; i--) {
         const c = active[i];
-        if (c.frozen) continue;
+        if (c.frozen || c.held) continue;
         f.moving++;
         const t = c.body.translation();
         if (onMoved) onMoved(c, t, c.body.rotation());
