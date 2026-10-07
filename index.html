@@ -58,11 +58,11 @@
 <script type="module">
 import * as THREE from './vendor/three.module.js';
 import * as RAPIER from './vendor/rapier.es.js';
-import { CFG } from './config.js?v=12';
-import { machineFromLayout } from './machine.js?v=12';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=12';
-import { createAudio } from './audio.js?v=12';
-import { createWheels, paintWheel } from './wheels.js?v=12';
+import { CFG } from './config.js?v=13';
+import { machineFromLayout } from './machine.js?v=13';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=13';
+import { createAudio } from './audio.js?v=13';
+import { createWheels, paintWheel } from './wheels.js?v=13';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -103,7 +103,8 @@ const num = k => (q.has(k) && Number.isFinite(+q.get(k)) ? +q.get(k) : undefined
 const SHOT = { side: num('arc') !== undefined ? num('arc') / 2 : undefined, speed: num('speed'),
                gap: num('rate') ? 1 / num('rate') : undefined, dribble: num('dribble') !== undefined ? num('dribble') / 100 : undefined };
 const SIM_OPTS = { hz: HZ, freeze: q.get('freeze') === 'on', freezeMode: q.get('mode') || 'creep',
-                   shot: Object.fromEntries(Object.entries(SHOT).filter(([, v]) => v !== undefined)) };
+                   shot: Object.fromEntries(Object.entries(SHOT).filter(([, v]) => v !== undefined)),
+                   ...(num('cap') ? { fieldCap: num('cap') } : {}) };      // ?cap=N coins in play before the supplies wait
 const layout = await loadLayout();
 const M = machineFromLayout(layout, { stroke: CFG.stroke });
 const pile = await json('field-pile.json');
@@ -281,6 +282,9 @@ let wheelCounts = [0, 0, 0];
 // The wheels' lights: each coin through a wheel moves its light on a slice;
 // stopping on a prize wins it. Coin prizes: ?prize=N coins from each supply.
 const PRIZE_COINS = Number.isFinite(+q.get('prize')) && q.get('prize') !== null ? +q.get('prize') : 5;
+// all three wheels lit: ?all=N coins from each supply (a placeholder prize)
+const ALL_LIT_COINS = Number.isFinite(+q.get('all')) && q.get('all') !== null ? +q.get('all') : 15;
+let celebrate = 0;                         // s left of the all-lit flash
 const WHEEL_NAME = ['Red', 'Yellow', 'Green'];
 const toast = document.getElementById('toast');
 let toastTimer = 0;
@@ -294,8 +298,15 @@ const wheels = createWheels((i, kind) => {
   if (kind === 'coins') { sim.supply(PRIZE_COINS); say(`${WHEEL_NAME[i]} wheel: ${PRIZE_COINS * 2} coins!`); }
   else { sim.ball(); say(`${WHEEL_NAME[i]} wheel: balls!`); }
   if (wheelLook[i]) wheelLook[i].glow = 1;
+}, () => {
+  // all three lit: the bigger prize, all three flash, then the lights go out
+  sim.supply(ALL_LIT_COINS);
+  setTimeout(() => say(`All three lit: ${ALL_LIT_COINS * 2} coins!`), 600);
+  celebrate = 1.6;
+  wheelLook.forEach(w => { w.glow = 1; });
 });
-const repaint = i => { const w = wheelLook[i]; if (!w) return; paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow); w.tex.needsUpdate = true; };
+const lampOn = i => wheels.on[i] || celebrate > 0;
+const repaint = i => { const w = wheelLook[i]; if (!w) return; paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow, lampOn(i)); w.tex.needsUpdate = true; };
 wheelLook.forEach((_, i) => repaint(i));
 
 // Beside each coin supply, an LED counter: the coins still to come out.
@@ -449,7 +460,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=12', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=13', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -599,14 +610,18 @@ function frame(now) {
     guardMeshes[i].position.set(at.x, at.y, at.z);
     guardMeshes[i].rotation.set(0, 0, at.ang);
   });
+  if (celebrate > 0 && (celebrate -= dt) <= 0) { celebrate = 0; wheelLook.forEach((_, i) => repaint(i)); }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
     // a prize won: the lit slice flashes for a moment
     if (w.glow > 0) {
+      const i = wheelLook.indexOf(w);
       w.glow = Math.max(0, w.glow - dt * 0.8);
-      paintWheel(w.ctx, 256, w.hex, wheels.lit[wheelLook.indexOf(w)], w.glow * (0.6 + 0.4 * Math.sin(performance.now() / 70)));
+      const blink = celebrate > 0 ? Math.sin(performance.now() / 90) > 0 : lampOn(i);
+      paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow * (0.6 + 0.4 * Math.sin(performance.now() / 70)), blink);
       w.tex.needsUpdate = true;
+      if (w.glow === 0) repaint(i);
     }
   }
 

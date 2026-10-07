@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=12';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=12';
+import { CFG } from './config.js?v=13';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=13';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -37,6 +37,7 @@ const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full c
  * flight at a time pay for it. Same footprint, same weight. */
 const ROUND_UNTIL_TILT = 0.42;   // radians off flat: lying flatter than this, back to a square
 const ROUND_AT_MOST = 10;        // s after leaving the box: square again, unless still up on its edge
+const EDGE_TIP = 2;              // s any coin may stand still on its edge before the shake topples it
 const STANDING_TIP = 0.6;        // s balanced on its rim after landing, then the machine's shake tips it
 const SURFACE_DEPTH = 2.4;  // cm - pressed less than this into a surface: lift it back on top
 const LANDING_SPEED = 20;  // cm/s - from the bottom of the box down onto the pusher
@@ -47,9 +48,9 @@ const UNSTICK = 0.03;
 // the way a real hopper does; most land on the side pusher below it. A ball
 // outlet lets a ball roll gently out, so balls gather by the outer wall.
 const SHOT_GAP = +(globalThis.SHOT_GAP ?? 0.2);              // s between coins out of one coin supply: 5 a second
-const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 115);          // cm/s, give or take 15%: most clear the pusher and land on the static field
+const SHOT_SPEED = +(globalThis.SHOT_SPEED ?? 86);           // cm/s, give or take 15%: most clear the pusher and land on the static field
 const SHOT_UP = [-8, +(globalThis.SHOT_UP ?? 18)];           // degrees above level, lowest..highest
-const SHOT_SIDE = +(globalThis.SHOT_SIDE ?? 30);             // degrees either side of straight out: a 60 degree fan; at 40 most still landed mid-pusher
+const SHOT_SIDE = +(globalThis.SHOT_SIDE ?? 27.5);           // degrees either side of straight out: a 55 degree fan (60 sent some over into the middle lane)
 // Some coins catch the outlet's lip on the way out and just drop, by the wall.
 const SHOT_DRIBBLE = +(globalThis.SHOT_DRIBBLE ?? 0.12);      // share of coins
 const DRIBBLE_SPEED = [8, 22];                                // cm/s
@@ -59,9 +60,14 @@ const BALL_R = 2.2;          // cm: just under the ball outlet's 4.8 cm opening
 const BALL_DENSITY = 0.45;   // a ball weighs about five coins
 const BALL_ROLL = 6;         // cm/s it rolls out at
 const MAX_BALLS = 24;
+// Like a real hopper, the coin supplies only have so much to give: with this many
+// coins in play they hold their queue until some have paid out. Prizes cannot
+// pile coins up past what a phone can simulate (~44 ms a step at 1,370 coins).
+const FIELD_CAP = 950;
 const BALL_HOLD = 1.5;       // s a counted ball stays in the drop area before it is cleared
 export const BALL_RADIUS = BALL_R;
-const DEG = Math.PI / 180;     // cm: overlap a coin in the board may have before it is put back out
+const DEG = Math.PI / 180;
+const S_BLOCK = 2.4;         // one block, cm     // cm: overlap a coin in the board may have before it is put back out
 const CHUTE_STUCK = 3;    // s - in the box this long and it is stuck: flick it. The wipers
                           // keep coins moving; 1.2 s (the old chute's) flicked coins that
                           // were only drifting slowly past them
@@ -129,7 +135,7 @@ export function createField(RAPIER, M, opts = {}) {
   for (const s of M.statics) add(RAPIER.ColliderDesc.cuboid(...s.h).setTranslation(...s.c), fixed(), s.kind, s.mu ?? (s.kind === 'glass' ? 0.2 : (s.kind === 'deck' || s.playfield) ? CFG.playfieldFriction : CFG.deckFriction));
   // (the board's wheels are slippery, so a coin on a funnel slides in)
   for (const h of M.hulls) add(RAPIER.ColliderDesc.convexHull(new Float32Array(h.points)), fixed(), h.kind,
-                               h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction);
+                               h.mu ?? (h.kind === 'ramp' ? 0.25 : h.kind === 'wheel' ? 0.08 : CFG.deckFriction));
   for (const r of M.rails) {
     const d = [0, 1, 2].map(a => r.b[a] - r.a[a]), len = Math.hypot(...d), u = d.map(v => v / len);
     const ax = [u[2], 0, -u[0]], s = Math.hypot(...ax), half = Math.acos(Math.max(-1, Math.min(1, u[1]))) / 2;
@@ -420,8 +426,10 @@ export function createField(RAPIER, M, opts = {}) {
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the wipers
   const D = M.zones.drop;
+  const midX = (M.bounds.lo[0] + M.bounds.hi[0]) / 2;
   const coinOutlets = (M.outlets || []).filter(o => o.kind === 'coin');
   // the coin supply's shot - the defaults above, or what the game asks for
+  const fieldCap = opts.fieldCap ?? FIELD_CAP;
   const shot = { speed: opts.shot?.speed ?? SHOT_SPEED, side: opts.shot?.side ?? SHOT_SIDE,
                  gap: opts.shot?.gap ?? SHOT_GAP, dribble: opts.shot?.dribble ?? SHOT_DRIBBLE };
   const ballOutlets = (M.outlets || []).filter(o => o.kind === 'ball');
@@ -502,7 +510,7 @@ export function createField(RAPIER, M, opts = {}) {
 
   const f = {
     world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
-    wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0,
+    wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0, toppled: 0,
     balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],
     supplyLeft: () => supplies.map(q => q.left),        // coins still to come out of each coin supply     // coins through each wheel; out of each of the board's 7 ways
     elapsed: 0, won: 0, lost: 0, frozen: 0, thaws: 0, freezes: 0, moving: 0, why: {}, nudges: 0, rescues: 0, lifts: 0, rescueLog: [], guards,
@@ -586,7 +594,8 @@ export function createField(RAPIER, M, opts = {}) {
         // It starts hidden inside the outlet and rolls out of its mouth on a
         // set path - inside a solid block the physics would fling it out -
         // then carries on under the physics at the same speed and spin.
-        const inside = BALL_R + 0.1, clear = BALL_R + 0.15;
+        // as deep inside as the solid behind the face allows, without poking out the back
+        const inside = Math.min(BALL_R + 0.1, Math.max(0, (o.depth ?? 2 * S_BLOCK) - BALL_R - 0.05)), clear = BALL_R + 0.15;
         const x = o.mouth[0] - o.dir[0] * inside + o.across[0] * off;
         const z = o.mouth[2] - o.dir[2] * inside + o.across[2] * off;
         const y = o.bottom + BALL_R + 0.05;
@@ -707,6 +716,7 @@ export function createField(RAPIER, M, opts = {}) {
      */
     step(onMoved, onCollected) {
       f.elapsed += world.timestep;
+      const tick = Math.round(f.elapsed / world.timestep);      // steps so far
       for (const p of pushers) {
         p.z = (1 - Math.cos(f.elapsed / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
         p.body.setNextKinematicTranslation({ x: 0, y: 0, z: p.z });
@@ -736,6 +746,7 @@ export function createField(RAPIER, M, opts = {}) {
       // coin supplies: each coin that is due goes out now, a little off straight
       for (const q of supplies) {
         if (!q.left || q.next > f.elapsed) continue;
+        if (active.length >= fieldCap) { q.next = f.elapsed + shot.gap; continue; }   // hopper waits for room
         const { o, onWake } = q;
         q.left--;
         q.next = f.elapsed + shot.gap * (0.9 + Math.random() * 0.2);
@@ -961,6 +972,28 @@ export function createField(RAPIER, M, opts = {}) {
         const ahead = v2 > CCD_FAST * CCD_FAST;
         if (ahead !== c.ahead) { c.body.setSoftCcdPrediction(ahead ? CCD_AHEAD : 0); c.ahead = ahead; }
 
+        // Anywhere in the machine, a coin left standing on its edge, nearly
+        // still, gets the machine's shake after a moment and topples - one
+        // leaning against the step down to a side ramp stayed there for good.
+        // Looked at twice a second: it costs next to nothing.
+        if (!c.round && tick % 15 === c.slot % 15) {
+          const q = c.body.rotation(), up = Math.abs(1 - 2 * (q.x * q.x + q.z * q.z));
+          if (up < Math.cos(1.2) && v2 < 25) {
+            c.edgeSince ??= f.elapsed;
+            if (f.elapsed - c.edgeSince > EDGE_TIP) {
+              // tip it over its face - the way it can fall - toward the middle
+              // and front of the machine, so away from whatever it leans on
+              const m = c.collider.mass();
+              let ax = 2 * (q.x * q.y - q.w * q.z), az = 2 * (q.y * q.z + q.w * q.x);
+              const len = Math.hypot(ax, az) || 1;
+              ax /= len; az /= len;
+              if (ax * (midX - t.x) + az * (D.z0 - t.z) < 0) { ax = -ax; az = -az; }
+              c.body.applyImpulseAtPoint({ x: ax * m * 6, y: 0, z: az * m * 6 }, { x: t.x, y: t.y + CFG.coinR * 0.9, z: t.z }, true);
+              c.edgeSince = undefined;
+              f.toppled++;
+            }
+          } else c.edgeSince = undefined;
+        }
         if (!freeze) continue;
         const w = c.body.angvel();
 

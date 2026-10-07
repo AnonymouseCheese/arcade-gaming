@@ -6,22 +6,30 @@
  *  that drops through a wheel moves its light one slice on, clockwise; if
  *  the light stops on a prize, that prize is won.
  *
- *  For now the special prize is balls (one out of every ball outlet) and
- *  coins are a shower from the coin supplies.
+ *  A coin through a wheel also lights it. With all three lit, there is a
+ *  bigger prize, and the lights go out again.
+ *
+ *  For now the special prize is balls (one out of every ball outlet), coins
+ *  are a shower from the coin supplies, and all three lit is a bigger
+ *  shower - a placeholder.
  * ------------------------------------------------------------------ */
 
 export const SLICES = ['special', null, 'coins', null, 'coins', null];
 
-/** The wheels' state. onPrize(wheel, kind) is called when a light stops on a prize. */
-export function createWheels(onPrize) {
+/** The wheels' state. onPrize(wheel, kind) when a light stops on a prize;
+ *  onAllLit() when the third wheel lights up. */
+export function createWheels(onPrize, onAllLit) {
   const lit = [0, 1, 2].map(() => Math.floor(Math.random() * SLICES.length));
+  const on = [false, false, false];
   return {
-    lit,
-    /** A coin dropped through wheel i: move its light on one slice. */
+    lit, on,
+    /** A coin dropped through wheel i: move its light on one slice, and light the wheel. */
     advance(i) {
       lit[i] = (lit[i] + 1) % SLICES.length;
       const kind = SLICES[lit[i]];
       if (kind) onPrize(i, kind);
+      on[i] = true;
+      if (on.every(Boolean)) { on.fill(false); if (onAllLit) onAllLit(); }
       return kind;
     },
   };
@@ -33,7 +41,7 @@ export function createWheels(onPrize) {
  * coins) and the empty slices with arrows pointing the way the light goes.
  * glow 0..1 brightens the lit slice further while a prize is being won.
  */
-export function paintWheel(ctx, size, hex, lit, glow = 0) {
+export function paintWheel(ctx, size, hex, lit, glow = 0, lampOn = false) {
   const c = size / 2, r = size / 2 - 4, n = SLICES.length;
   const rgb = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
   const shade = k => `rgb(${rgb.map(v => Math.round(v * k)).join(',')})`;
@@ -77,9 +85,15 @@ export function paintWheel(ctx, size, hex, lit, glow = 0) {
     }
     ctx.restore();
   }
-  // the rim and the hub
-  ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2);
-  ctx.strokeStyle = '#f2f4fa'; ctx.lineWidth = 6; ctx.stroke();
+  // the rim: a ring of light when the wheel is lit, plain when it is not
+  ctx.beginPath(); ctx.arc(c, c, r - 2, 0, Math.PI * 2);
+  if (lampOn) {
+    ctx.shadowColor = '#fff3a0'; ctx.shadowBlur = 18;
+    ctx.strokeStyle = '#fffbe0'; ctx.lineWidth = 10; ctx.stroke();
+    ctx.shadowBlur = 0;
+  } else {
+    ctx.strokeStyle = '#8d93a8'; ctx.lineWidth = 6; ctx.stroke();
+  }
   ctx.beginPath(); ctx.arc(c, c, r * 0.24, 0, Math.PI * 2);
   ctx.fillStyle = '#c8202e'; ctx.fill();
   ctx.strokeStyle = '#f2f4fa'; ctx.lineWidth = 4; ctx.stroke();

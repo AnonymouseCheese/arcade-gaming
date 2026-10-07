@@ -304,7 +304,7 @@ function isFloor(s, cells) {
  *   kind     'coin' | 'ball'
  *   mouth    the middle of that face, cm      dir  out of it (unit, flat)
  *   across   along the face, flat (unit)      width, height of the face, cm
- *   bottom   the face's lowest edge, cm
+ *   bottom   the face's lowest edge, cm       depth  solid behind the face, cm
  */
 function findOutlets(cells, midX) {
   const kinds = { coinout: 'coin', ballout: 'ball' };
@@ -335,8 +335,15 @@ function findOutlets(cells, midX) {
     const across = d[2] ? [1, 0, 0] : [0, 0, 1];
     const along = face.map(p => p[0] * across[0] + p[2] * across[2]);
     const ys = open.map(([, j]) => j);
+    // how much solid there is behind the face (the outlet, and any wall behind
+    // it): a flush outlet in a one-block wall has room to hide little
+    const behind = Math.min(...open.map(([i, j, k]) => {
+      let n = 0;
+      while (n < 8 && cells.has(key(i - d[0] * n, j, k - d[2] * n))) n++;
+      return n;
+    }));
     out.push({
-      kind: kinds[b.kind],
+      kind: kinds[b.kind], depth: behind * S,
       mouth: [0, 1, 2].map(a => face.reduce((s, p) => s + p[a], 0) / face.length),
       dir: d, across,
       width: Math.max(...along) - Math.min(...along) + S,
@@ -537,6 +544,14 @@ export function withAdditions(layout, additions) {
   const pt = p => ({ x: p[0], y: p[1], z: p[2] });
   const near = (p, q) => Math.abs(p.x - q.x) < 0.02 && Math.abs(p.y - q.y) < 0.02 && Math.abs(p.z - q.z) < 0.02;
   for (const d of additions.batches ?? [additions]) {
+    // blocks taken out, and blocks turned into another material
+    const gone = new Set((d.remove || []).map(b => key(b.i, b.j, b.k)));
+    const paint = new Map((d.paint || []).map(b => [key(b.i, b.j, b.k), b.kind]));
+    if (gone.size || paint.size) {
+      out.blocks = out.blocks.filter(b => !gone.has(key(b.i, b.j, b.k)))
+        .map(b => (paint.has(key(b.i, b.j, b.k)) ? { ...b, kind: paint.get(key(b.i, b.j, b.k)) } : b));
+      for (const kk of gone) have.delete(kk);
+    }
     for (const b of d.blocks || []) if (!have.has(key(b.i, b.j, b.k))) { out.blocks.push(b); have.add(key(b.i, b.j, b.k)); }
     // a rail or mark already in the layout (added in the editor, then saved)
     // is not added twice; the editor rounds positions to 2 decimals
