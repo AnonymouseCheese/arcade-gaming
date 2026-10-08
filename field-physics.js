@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=24';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=24';
+import { CFG } from './config.js?v=25';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=25';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
