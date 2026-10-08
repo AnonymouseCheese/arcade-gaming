@@ -14,10 +14,10 @@
  *  of slots. The arrays are transferred, not copied.
  * ------------------------------------------------------------------ */
 
-import { loadRapier } from './engine.js?v=26';
-import { CFG } from './config.js?v=26';
-import { machineFromLayout } from './machine.js?v=26';
-import { createField, snapshot } from './field-physics.js?v=26';
+import { loadRapier } from './engine.js?v=27';
+import { CFG } from './config.js?v=27';
+import { machineFromLayout } from './machine.js?v=27';
+import { createField, snapshot } from './field-physics.js?v=27';
 
 let RAPIER = null, field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
@@ -43,7 +43,7 @@ self.onmessage = async e => {
   } else if (m.type === 'ball') {
     if (field) field.ball();
   } else if (m.type === 'superpush') {
-    if (field) field.superPush(m.s ?? 8);
+    if (field) field.superPush(m.times ?? 1);
   } else if (m.type === 'tower') {
     if (field) field.tower(m.n ?? 15);
   } else if (m.type === 'pause') {

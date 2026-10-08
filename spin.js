@@ -7,9 +7,10 @@
  *  made from its own, bigger pool.
  *
  *  Placeholders, to be set with the economy (see the plan): coins come
- *  from the two coin supplies, balls from the ball outlets, and Super Push
- *  runs the pushers at double speed for a while - twice the pushing,
- *  so the pile goes over the front faster.
+ *  from the two coin supplies, balls from the ball outlets. Super Push pulls
+ *  every pusher right back into its wall - the coins riding on it are
+ *  scraped off onto the field - then pushes slowly out to its full reach,
+ *  shoving them and the pile on toward the edge.
  * ------------------------------------------------------------------ */
 
 // clockwise from the top
@@ -20,7 +21,7 @@ export const RING = [
   { kind: 'coins',  n: 20, label: '20',   sub: 'COINS',      color: '#ffd23d', weight: 12 },
   { kind: 'hole',          label: '',     sub: 'BLACK HOLE', color: '#ff6a2a', weight: 12 },
   { kind: 'double',        label: '×2',   sub: 'NEXT SPIN',  color: '#c44bff', weight: 8 },
-  { kind: 'push',   s: 8,  label: 'PUSH', sub: 'SUPER',      color: '#3dff7a', weight: 10 },
+  { kind: 'push',   times: 1, label: 'PUSH', sub: 'SUPER',   color: '#3dff7a', weight: 10 },
   { kind: 'coins',  n: 50, label: '50',   sub: 'COINS',      color: '#ff3b52', weight: 4 },
 ];
 
@@ -28,7 +29,7 @@ export const RING = [
 export const HOLE = [
   { kind: 'coins', n: 60,  label: '60',   sub: 'COIN SHOWER',     color: '#ffd23d', weight: 30 },
   { kind: 'balls', n: 6,   label: '6',    sub: 'BALLS',           color: '#4d8dff', weight: 25 },
-  { kind: 'push',  s: 20,  label: 'PUSH', sub: 'LONG SUPER PUSH', color: '#3dff7a', weight: 25 },
+  { kind: 'push',  times: 2, label: 'PUSH ×2', sub: 'DOUBLE SUPER PUSH', color: '#3dff7a', weight: 25 },
   { kind: 'coins', n: 100, label: '100',  sub: 'COINS',           color: '#ff3b52', weight: 20 },
 ];
 
@@ -52,7 +53,7 @@ export function spinOnce(rnd = Math.random) {
 export function describe(prize, mult = 1) {
   if (prize.kind === 'coins') return `${prize.n * mult} coins`;
   if (prize.kind === 'balls') return `${prize.n * mult} big balls`;
-  if (prize.kind === 'push') return `Super Push, ${prize.s * mult} s`;
+  if (prize.kind === 'push') return prize.times * mult > 1 ? `Super Push ×${prize.times * mult}` : 'Super Push';
   if (prize.kind === 'double') return 'Next spin ×2';
   return '';
 }

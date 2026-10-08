@@ -13,7 +13,7 @@
  *  Nothing here touches the machine: onPrize(prize, mult) is called when
  *  the banner goes up, and the game pays it.
  * ------------------------------------------------------------------ */
-import { RING, HOLE, describe } from './spin.js?v=26';
+import { RING, HOLE, describe } from './spin.js?v=27';
 
 const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6 };
 const TAU = Math.PI * 2;
@@ -24,7 +24,7 @@ export function createScreen(canvas, hooks = {}) {
   const W = canvas.width, H = canvas.height;
   const cx = W / 2, cy = H * 0.57, R = H * 0.33, SR = H * 0.088;     // the ring, and each prize on it
   let time = 0, idleDraw = 0, lamps = [false, false, false], at = 0;  // at: the lit slot when idle
-  let show = null;
+  let show = null, pushing = false;
   const queue = [];
 
   const slotXY = k => { const a = -Math.PI / 2 + TAU * k / RING.length; return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
@@ -182,6 +182,12 @@ export function createScreen(canvas, hooks = {}) {
   function paint() {
     frame();
     const s = show;
+    if (!s && pushing) {
+      title('SUPER PUSH', '#3dff7a');
+      portal(R * (0.9 + 0.1 * Math.sin(time * 5)), 0);
+      centreText([['PUSHING!', Math.round(H * 0.12), '#ffffff', -H * 0.03], ['LOOK AT THE MIDDLE', Math.round(H * 0.05), '#3dff7a', H * 0.09]]);
+      return;
+    }
     if (!s) {
       title('WHEEL SPIN');
       portal(R * 0.62);
@@ -228,9 +234,9 @@ export function createScreen(canvas, hooks = {}) {
     g.fillStyle = 'rgba(8,12,40,0.82)';
     g.beginPath(); g.roundRect(cx - W * 0.27, cy - H * 0.2, W * 0.54, H * 0.4, 28); g.fill();
     g.lineWidth = 6; g.strokeStyle = p.color; g.stroke();
-    const big = p.kind === 'push' ? 'SUPER PUSH' : p.label;
+    const big = p.kind === 'push' ? 'SUPER PUSH' : p.label, n = (p.times || 1) * s.mult;
     centreText([[big, Math.round(H * (p.kind === 'push' ? 0.11 : 0.17)), '#ffffff', -H * 0.04],
-                [p.kind === 'push' ? `${p.s * s.mult} SECONDS` : p.kind === 'double' ? 'NEXT SPIN' : (s.mult > 1 && s.phase === 'congrats' ? `${p.sub} ×2` : p.sub), Math.round(H * 0.055), p.color, H * 0.11]]);
+                [p.kind === 'push' ? (n > 1 ? `×${n}` : 'ALL THE WAY BACK') : p.kind === 'double' ? 'NEXT SPIN' : (s.mult > 1 && s.phase === 'congrats' ? `${p.sub} ×2` : p.sub), Math.round(H * 0.055), p.color, H * 0.11]]);
     g.restore();
     if (s.phase === 'congrats') {
       // a ribbon of confetti
@@ -246,6 +252,8 @@ export function createScreen(canvas, hooks = {}) {
     get busy() { return !!show || queue.length > 0; },
     /** Queue a show for this spin result; mult is a ×2 won on the last spin. */
     play(result, mult = 1) { queue.push({ result, mult }); if (!show) next(); },
+    /** The pushers are doing a Super Push: the screen says so, between shows. */
+    setPushing(on) { if (on !== pushing) { pushing = on; idleDraw = 1; } },
     /** The three lamps under the wheels, for the idle screen. */
     setLamps(on) { if (on.some((v, i) => v !== lamps[i])) { lamps = on.slice(); idleDraw = 1; } },
     /** Advance by dt seconds; true if the canvas was repainted. */

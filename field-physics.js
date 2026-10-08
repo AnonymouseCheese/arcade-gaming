@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=26';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=26';
+import { CFG } from './config.js?v=27';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=27';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -27,6 +27,7 @@ import { coinCollider } from './physics.js?v=26';
 
 const CHUTE_SIDE = +(globalThis.BOARD_SIDE ?? 70);   // cm/s - the fastest a coin may go sideways in the box
 const CHUTE_SPEED = 45;   // cm/s - the fastest a coin may fall inside the drop box
+const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s back into the wall, s waiting there, cm/s back out
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -200,6 +201,20 @@ export function createField(RAPIER, M, opts = {}) {
       sweep: { x0: p.x0 - 1.5, x1: p.x1 + 1.5, y0: p.bottom - 1, y1: p.top + 1 },
     };
   });
+  // Super Push takes each pusher back until its face is flush with the wall
+  // behind it - the wall its top slides into (for the middle one, the drop
+  // box's back panel) - so every coin riding on it is scraped off.
+  for (const p of pushers) {
+    let wall = p.back;
+    for (const b of M.statics) {
+      if (b.drawOnly || b.kind === 'clip') continue;
+      const z1 = b.c[2] + b.h[2];
+      if (b.c[0] + b.h[0] > p.x0 && b.c[0] - b.h[0] < p.x1 && b.c[1] - b.h[1] < p.top && b.c[1] + b.h[1] > p.top - 1 &&
+          z1 > p.back && z1 <= p.front + 0.01) wall = Math.max(wall, z1);
+    }
+    p.home = wall - p.front;                                     // its offset with the face at the wall (negative)
+    p.clock = 0; p.script = null;
+  }
   const inside = (t, Z) => t.x > Z.x0 && t.x < Z.x1 && t.y > Z.y0 && t.y < Z.y1 && t.z > Z.z0 && t.z < Z.z1;
   const nearPusher = t => pushers.some(p => inside(t, p.riding));
 
@@ -555,7 +570,7 @@ export function createField(RAPIER, M, opts = {}) {
   }
 
   const f = {
-    world, coins, active, pushers, kindOf, weight, towers, towersWon: 0, pushT: 0, boostUntil: 0,
+    world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
     wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0, toppled: 0,
     balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],
     supplyLeft: () => supplies.map(q => q.left),        // coins still to come out of each coin supply     // coins through each wheel; out of each of the board's 7 ways
@@ -740,11 +755,11 @@ export function createField(RAPIER, M, opts = {}) {
       // the pushers have to be where they were when it was recorded, or the
       // coins resting on them start out inside them
       f.elapsed = pile.elapsed ?? 0;
-      f.pushT = pile.pushT ?? f.elapsed;
-      for (const p of pushers) {
-        p.z = (1 - Math.cos(f.pushT / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+      pushers.forEach((p, i) => {
+        p.clock = pile.pushClocks?.[i] ?? f.elapsed; p.script = null;
+        p.z = (1 - Math.cos(p.clock / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
         p.body.setTranslation({ x: 0, y: 0, z: p.z }, true);
-      }
+      });
       for (const t of pile.coins) {
         const c = f.take();
         if (!c) break;
@@ -756,14 +771,22 @@ export function createField(RAPIER, M, opts = {}) {
 
     /** Everything at rest right now, as a pile that seedFrom() can load. */
     record() {
-      return { elapsed: Math.round(f.elapsed * 1e4) / 1e4, pushT: Math.round(f.pushT * 1e4) / 1e4, coins: f.recordCoins() };
+      return { elapsed: Math.round(f.elapsed * 1e4) / 1e4, pushClocks: pushers.map(p => Math.round(p.clock * 1e4) / 1e4), coins: f.recordCoins() };
     },
 
-    /** Super Push: the pushers run at double speed for s more seconds - twice
-     *  the pushing, so the pile goes over the front faster. (Reaching further
-     *  instead would bring each pusher's back end out of the wall behind it,
-     *  leaving a gap for coins to fall into.) */
-    superPush(s) { f.boostUntil = Math.max(f.boostUntil, f.elapsed) + s; },
+    /** Super Push, `times` over: every pusher pulls right back into its wall,
+     *  so all the coins riding on it are scraped off onto the field below,
+     *  waits a moment, then pushes slowly out to its full reach - shoving
+     *  them, and the pile in front, on toward the edge. Then it carries on
+     *  as before from there. */
+    superPush(times = 1) {
+      for (const p of pushers) {
+        if (p.script) p.script.times += times;
+        else p.script = { stage: 'back', times, t: 0 };
+      }
+    },
+    /** Is a Super Push under way? */
+    get superPushing() { return pushers.some(p => p.script); },
     recordCoins() {
       return active.map(c => {
         const t = c.body.translation(), q = c.body.rotation();
@@ -778,10 +801,27 @@ export function createField(RAPIER, M, opts = {}) {
     step(onMoved, onCollected) {
       f.elapsed += world.timestep;
       const tick = Math.round(f.elapsed / world.timestep);      // steps so far
-      // the pushers keep their own clock: Super Push runs it at double speed
-      f.pushT += world.timestep * (f.elapsed < f.boostUntil ? 2 : 1);
       for (const p of pushers) {
-        p.z = (1 - Math.cos(f.pushT / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+        const S = p.script, dt = world.timestep;
+        if (!S) {
+          p.clock += dt;
+          p.z = (1 - Math.cos(p.clock / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+        } else if (S.stage === 'back') {                       // quickly back into the wall
+          p.z = Math.max(p.home, p.z - SUPER_BACK * dt);
+          if (p.z === p.home) { S.stage = 'wait'; S.t = 0; }
+        } else if (S.stage === 'wait') {                       // the coins drop off
+          if ((S.t += dt) >= SUPER_WAIT) S.stage = 'out';
+        } else {                                               // slowly out to its full reach
+          p.z = Math.min(p.stroke, p.z + SUPER_OUT * dt);
+          if (p.z === p.stroke) {
+            if (--S.times > 0) S.stage = 'back';
+            else {
+              // back to its stroke, at the far end of it - where it is now
+              p.script = null;
+              p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
+            }
+          }
+        }
         p.body.setNextKinematicTranslation({ x: 0, y: 0, z: p.z });
       }
       for (const b of balls) {
@@ -1135,7 +1175,7 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft() },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];

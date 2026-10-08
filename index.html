@@ -58,15 +58,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=26';
-import { CFG } from './config.js?v=26';
-import { machineFromLayout } from './machine.js?v=26';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=26';
-import { createAudio } from './audio.js?v=26';
-import { createWheels, paintWheel } from './wheels.js?v=26';
-import { createSteady } from './steady.js?v=26';
-import { createScreen } from './screen.js?v=26';
-import { spinOnce, describe } from './spin.js?v=26';
+import { loadRapier, simd } from './engine.js?v=27';
+import { CFG } from './config.js?v=27';
+import { machineFromLayout } from './machine.js?v=27';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=27';
+import { createAudio } from './audio.js?v=27';
+import { createWheels, paintWheel } from './wheels.js?v=27';
+import { createSteady } from './steady.js?v=27';
+import { createScreen } from './screen.js?v=27';
+import { spinOnce, describe } from './spin.js?v=27';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -318,7 +318,7 @@ if (M.chute?.board) {
 }
 
 // The screen over the coin slot, where the wheel spin plays (screen.js).
-let screen = null, screenTex = null, nextMult = 1, superUntil = 0;
+let screen = null, screenTex = null, nextMult = 1;
 if (M.chute) {
   const C = M.chute, canvas = document.createElement('canvas');
   canvas.width = 960; canvas.height = 540;
@@ -343,7 +343,7 @@ function payPrize(prize, mult) {
   say(`Wheel spin: ${describe(prize, mult)}!`);
   if (prize.kind === 'coins') sim.supply(Math.ceil(prize.n * mult / 2));
   else if (prize.kind === 'balls') { for (let k = 0; k < Math.ceil(prize.n * mult / 2); k++) setTimeout(() => sim.ball(), k * 700); }
-  else if (prize.kind === 'push') { sim.superPush(prize.s * mult); superUntil = performance.now() + prize.s * mult * 1000; }
+  else if (prize.kind === 'push') sim.superPush(prize.times * mult);
 }
 
 // The wheels' lights: each coin through a wheel moves its light on a slice;
@@ -566,13 +566,13 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=26', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=27', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
   sim = { insert: () => worker.postMessage({ type: 'insert' }), frame() {}, alpha: () => Math.min(1, (performance.now() - stateAt) * HZ / 1000),
           supply: n => worker.postMessage({ type: 'supply', n }), ball: () => worker.postMessage({ type: 'ball' }),
-          superPush: s => worker.postMessage({ type: 'superpush', s }) };
+          superPush: n => worker.postMessage({ type: 'superpush', times: n }) };
 } else {
   const RAPIER = await loadRapier();
   const field = createField(RAPIER, M, { ...SIM_OPTS, shape: 'box' });
@@ -583,7 +583,7 @@ if (USE_WORKER) {
     insert: () => field.insert(),
     supply: n => field.supply(n),
     ball: () => field.ball(),
-    superPush: s => field.superPush(s),
+    superPush: n => field.superPush(n),
     frame(dt) {
       acc += dt;
       const step = field.world.timestep;
@@ -727,7 +727,7 @@ function frame(now) {
   if (celebrate > 0 && (celebrate -= dt) <= 0) { celebrate = 0; wheelLook.forEach((_, i) => repaint(i)); }
   // the lamps stay lit while a spin plays, then go out with it
   lampLook.forEach((L, i) => { const on = wheels.on[i] || !!screen?.busy || celebrate > 0; if (on !== L.on) paintLamp(L, on); });
-  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); if (screen.update(dt)) screenTex.needsUpdate = true; }
+  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); if (screen.update(dt)) screenTex.needsUpdate = true; }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
