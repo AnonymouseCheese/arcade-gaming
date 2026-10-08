@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=23';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=23';
+import { CFG } from './config.js?v=24';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=24';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -958,7 +958,13 @@ export function createField(RAPIER, M, opts = {}) {
           const v = c.body.linvel();
           const G = ch.guards, cap = t.y > G.pivotY - G.length - 1 ? Math.min(G.drift, boardFall) : boardFall;
           const vy = Math.max(-cap, Math.min(cap, v.y)), vx = Math.max(-CHUTE_SIDE, Math.min(CHUTE_SIDE, v.x));
-          if (vy !== v.y || vx !== v.x) c.body.setLinvel({ x: vx, y: vy, z: v.z }, true);
+          // ...except while it is going round a pin: held back there, a coin
+          // could not gather the speed to come away, hugged the pin right down
+          // its side and dropped off its underside - into yellow, under the
+          // middle pin, as if it had stuck to it
+          let onPin = false;
+          f.world.contactPairsWith(c.collider, o => { if (!onPin && kindOf.get(o.handle) === 'pin') f.world.contactPair(c.collider, o, m => { if (m.numContacts()) onPin = true; }); });
+          if (!onPin && (vy !== v.y || vx !== v.x)) c.body.setLinvel({ x: vx, y: vy, z: v.z }, true);
           c.inChute += world.timestep;
           if (c.inChute > CHUTE_STUCK) {
             f.nudges++;
@@ -1039,6 +1045,10 @@ export function createField(RAPIER, M, opts = {}) {
               ax /= len; az /= len;
               if (ax * (midX - t.x) + az * (D.z0 - t.z) < 0) { ax = -ax; az = -az; }
               c.body.applyImpulseAtPoint({ x: ax * m * k, y: 0, z: az * m * k }, { x: t.x, y: t.y + CFG.coinR * 0.9, z: t.z }, true);
+              // and round, as a real coin is, until it lies flat again: a
+              // square stands steady on its flat edge, wedged in a pile or
+              // against a wall, and came straight back up - for minutes
+              if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; c.outAt = f.elapsed; }
               c.edgeSince = undefined;
               f.toppled++;
             }

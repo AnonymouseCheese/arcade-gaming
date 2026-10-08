@@ -57,13 +57,13 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=23';
-import { CFG } from './config.js?v=23';
-import { machineFromLayout } from './machine.js?v=23';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=23';
-import { createAudio } from './audio.js?v=23';
-import { createWheels, paintWheel } from './wheels.js?v=23';
-import { createSteady } from './steady.js?v=23';
+import { loadRapier, simd } from './engine.js?v=24';
+import { CFG } from './config.js?v=24';
+import { machineFromLayout } from './machine.js?v=24';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=24';
+import { createAudio } from './audio.js?v=24';
+import { createWheels, paintWheel } from './wheels.js?v=24';
+import { createSteady } from './steady.js?v=24';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -310,30 +310,41 @@ const lampOn = i => wheels.on[i] || celebrate > 0;
 const repaint = i => { const w = wheelLook[i]; if (!w) return; paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow, lampOn(i)); w.tex.needsUpdate = true; };
 wheelLook.forEach((_, i) => repaint(i));
 
-// Beside each coin supply, an LED counter: the coins still to come out.
+// On top of each coin supply, an LED counter: the coins still to come out.
+// Tilted back to face the player's view (35 degrees down), and big - flat on
+// the wall beside the outlet, at half this size, it could hardly be read.
+const LED_W = 6, LED_H = 3, LED_TILT = 0.62;
 const ledFor = (M.outlets || []).filter(o => o.kind === 'coin').map(o => {
   const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 64;
+  canvas.width = 256; canvas.height = 128;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const led = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
-  // on the wall face beside the outlet, at the same height
-  led.position.set(o.mouth[0] + o.across[0] * (o.width / 2 + 2.3), o.mouth[1], o.mouth[2] - o.dir[2] * 2.35);
-  led.lookAt(led.position.x + o.dir[0], led.position.y, led.position.z + o.dir[2]);
+  tex.anisotropy = 4;
+  const led = new THREE.Mesh(new THREE.PlaneGeometry(LED_W, LED_H), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+  // standing on the outlet's top, at its front edge, leaning back
+  const c = Math.cos(LED_TILT), s = Math.sin(LED_TILT), top = o.bottom + o.height;
+  led.position.set(o.mouth[0], top + LED_H / 2 * c, o.mouth[2] - o.dir[2] * (0.3 + LED_H / 2 * s));
+  led.lookAt(led.position.x + o.dir[0] * c, led.position.y + s, led.position.z + o.dir[2] * c);
   scene.add(led);
+  // a dark housing behind it
+  const back = new THREE.Mesh(new THREE.BoxGeometry(LED_W + 0.4, LED_H + 0.4, 0.3), LOOK.frame[0]);
+  back.position.copy(led.position).addScaledVector(new THREE.Vector3(o.dir[0] * c, s, o.dir[2] * c), -0.16);
+  back.quaternion.copy(led.quaternion);
+  scene.add(back);
   return { ctx: canvas.getContext('2d'), tex, shown: -1 };
 });
 function paintLed(L, n) {
   if (L.shown === n) return;
   L.shown = n;
   const g = L.ctx;
-  g.fillStyle = '#1a0306'; g.fillRect(0, 0, 128, 64);
-  g.strokeStyle = '#5a1018'; g.lineWidth = 4; g.strokeRect(2, 2, 124, 60);
-  g.font = 'bold 46px "Courier New", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillStyle = 'rgba(255,40,40,0.12)'; g.fillText('88', 64, 35);           // the unlit segments
-  g.shadowColor = '#ff2020'; g.shadowBlur = n ? 14 : 4;
-  g.fillStyle = n ? '#ff3b3b' : '#7a1c1c';
-  g.fillText(String(Math.min(99, n)).padStart(2, ' '), 64, 35);
+  g.fillStyle = '#080103'; g.fillRect(0, 0, 256, 128);
+  g.strokeStyle = '#3a0a10'; g.lineWidth = 6; g.strokeRect(3, 3, 250, 122);
+  g.font = 'bold 112px "Courier New", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,60,40,0.10)'; g.fillText('88', 128, 70);         // the unlit segments
+  g.shadowColor = '#ff3020'; g.shadowBlur = n ? 22 : 6;
+  g.fillStyle = n ? '#ff5a3c' : '#8a2a22';
+  g.fillText(String(Math.min(99, n)).padStart(2, ' '), 128, 70);
+  if (n) { g.shadowBlur = 0; g.fillStyle = '#ffd2c4'; g.globalAlpha = 0.35; g.fillText(String(Math.min(99, n)).padStart(2, ' '), 128, 70); g.globalAlpha = 1; }
   g.shadowBlur = 0;
   L.tex.needsUpdate = true;
 }
@@ -489,7 +500,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=23', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=24', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });

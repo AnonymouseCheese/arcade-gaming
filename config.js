@@ -18,7 +18,7 @@ export const CFG = {
   // 33, so more coins fit; drawing blends between steps, so it looks no different.
   physicsHz:    25,
   coinFriction:   0.25,   // coin on coin: 0.55 let coins heap up against the pusher instead of moving on
-  deckFriction:   0.80,   // walls, stage floors
+  deckFriction:   0.30,   // walls (polished; at 0.80 a coin pressed against one hung there - on the lip over a ramp, for minutes)
   // The open decks coins are pushed across, polished steel. At 0.80 the
   // middle deck's pile barely moved: one coin in five came back in normal
   // play and the pile kept growing. At 0.15 (with coins at 0.25) three
