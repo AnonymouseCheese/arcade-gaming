@@ -13,7 +13,7 @@
  *  Nothing here touches the machine: onPrize(prize, mult) is called when
  *  the banner goes up, and the game pays it.
  * ------------------------------------------------------------------ */
-import { RING, HOLE, describe } from './spin.js?v=27';
+import { RING, HOLE, describe } from './spin.js?v=28';
 
 const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6 };
 const TAU = Math.PI * 2;

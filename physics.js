@@ -1,4 +1,4 @@
-import { CFG } from './config.js?v=27';   // keep the ?v in step with app.js
+import { CFG } from './config.js?v=28';   // keep the ?v in step with app.js
 
 /* ------------------------------------------------------------------ *
  *  The machine, as physics only. No renderer, no DOM - so this file

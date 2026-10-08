@@ -58,15 +58,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=27';
-import { CFG } from './config.js?v=27';
-import { machineFromLayout } from './machine.js?v=27';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=27';
-import { createAudio } from './audio.js?v=27';
-import { createWheels, paintWheel } from './wheels.js?v=27';
-import { createSteady } from './steady.js?v=27';
-import { createScreen } from './screen.js?v=27';
-import { spinOnce, describe } from './spin.js?v=27';
+import { loadRapier, simd } from './engine.js?v=28';
+import { CFG } from './config.js?v=28';
+import { machineFromLayout } from './machine.js?v=28';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=28';
+import { createAudio } from './audio.js?v=28';
+import { createWheels, paintWheel } from './wheels.js?v=28';
+import { createSteady } from './steady.js?v=28';
+import { createScreen } from './screen.js?v=28';
+import { spinOnce, describe } from './spin.js?v=28';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -211,14 +211,27 @@ for (const r of M.rails) {
 }
 
 // the pushers: what you see is the part in front of the wall and above the deck
+// Drawn the whole length the physics has - right back into the wall - or the
+// drawn pusher came away from the wall as it pushed forward, showing a gap
+// that was not there. Anything sliding out behind the cabinet's back wall
+// (a Super Push takes them 12 cm back) is cut off: it would show through.
+renderer.localClippingEnabled = true;
+const pusherMat = chrome.clone();
+{
+  const back = Math.min(...M.pushers.map(p => p.back));
+  const wall = M.statics.filter(s => s.kind === 'wall' && Math.abs(s.c[2] + s.h[2] - back) < 0.01);
+  const rear = wall.length ? Math.min(...wall.map(s => s.c[2] - s.h[2])) : back;
+  pusherMat.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), -rear)];
+}
 const pusherGroups = M.pushers.map(p => {
   const g = new THREE.Group();
   for (const b of p.boxes) {
-    // the physics body reaches back into the wall and down into the deck,
-    // out of sight; draw only the part you would see
-    const lo = [b.c[0] - b.h[0], Math.max(b.c[1] - b.h[1], p.bottom), Math.max(b.c[2] - b.h[2], p.back)];
+    // down into the deck it is out of sight from every side: not drawn
+    const lo = [b.c[0] - b.h[0], Math.max(b.c[1] - b.h[1], p.bottom), b.c[2] - b.h[2]];
     const hi = [b.c[0] + b.h[0], b.c[1] + b.h[1], b.c[2] + b.h[2]];
-    g.add(boxMesh({ c: lo.map((v, i) => (v + hi[i]) / 2), h: lo.map((v, i) => (hi[i] - v) / 2) }, 'pusher'));
+    const m = boxMesh({ c: lo.map((v, i) => (v + hi[i]) / 2), h: lo.map((v, i) => (hi[i] - v) / 2) }, 'pusher');
+    m.material = pusherMat;
+    g.add(m);
   }
   scene.add(g);
   return g;
@@ -566,7 +579,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=27', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=28', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
