@@ -23,11 +23,15 @@ export function createWheels(onPrize, onAllLit) {
   const on = [false, false, false];
   return {
     lit, on,
+    /** While the wheel spin plays, coins still move the lights and win the
+     *  slices' prizes, but light no wheel: the lamps start again after it. */
+    hold: false,
     /** A coin dropped through wheel i: move its light on one slice, and light the wheel. */
     advance(i) {
       lit[i] = (lit[i] + 1) % SLICES.length;
       const kind = SLICES[lit[i]];
       if (kind) onPrize(i, kind);
+      if (this.hold) return kind;
       on[i] = true;
       if (on.every(Boolean)) { on.fill(false); if (onAllLit) onAllLit(); }
       return kind;

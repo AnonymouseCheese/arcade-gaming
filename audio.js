@@ -149,6 +149,26 @@ export function createAudio() {
     setTimeout(() => { voices--; }, dur * 1000 + 40);
   }
 
+  /** An electronic beep - the wheel spin's screen. */
+  function beep(f, dur = 0.06, gain = 0.18, type = 'square', at = 0) {
+    if (!ctx || voices > 14) return;
+    voices++;
+    safe(() => {
+      const t = ctx.currentTime + at;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(comp);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    });
+    setTimeout(() => { voices--; }, (at + dur) * 1000 + 40);
+  }
+
   return {
     unlock,
 
@@ -197,5 +217,31 @@ export function createAudio() {
 
     /** A coin gone down the side. Duller, and it should feel like a loss. */
     loss() { thud({ f: 190, gain: 0.22, dur: 0.11 }); },
+
+    /** The wheel spin: a step of the light round the ring. */
+    spinTick() { beep(1320, 0.035, 0.10); },
+    /** It stops on a prize. */
+    spinLand() { beep(880, 0.12, 0.16, 'triangle'); beep(1320, 0.18, 0.16, 'triangle', 0.09); },
+    /** The black hole opening: a long falling roar. */
+    whoosh(dur = 2.2) {
+      if (!ctx) return;
+      safe(() => {
+        const t = ctx.currentTime;
+        const n = ctx.createBufferSource();
+        n.buffer = noise; n.loop = true;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass'; lp.Q.value = 6;
+        lp.frequency.setValueAtTime(2400, t);
+        lp.frequency.exponentialRampToValueAtTime(120, t + dur);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.35, t + 0.3);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        n.connect(lp).connect(g).connect(comp);
+        n.start(t); n.stop(t + dur + 0.05);
+      });
+    },
+    /** A prize won: a quick rising arpeggio. */
+    fanfare() { [523, 659, 784, 1047, 1319].forEach((f, i) => beep(f, 0.16, 0.14, 'triangle', i * 0.08)); },
   };
 }

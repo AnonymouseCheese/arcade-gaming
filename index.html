@@ -53,17 +53,20 @@
   <button id="view">Turn the view</button>
   <button id="testCoins" title="Test: every coin supply shoots out 10 coins - the machine's, not yours">Test coins</button>
   <button id="testBall" title="Test: one ball out of every ball outlet">Test ball</button>
+  <button id="testSpin" title="Test: play a wheel spin on the screen, as if all three wheels were lit">Test spin</button>
 </div>
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=25';
-import { CFG } from './config.js?v=25';
-import { machineFromLayout } from './machine.js?v=25';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=25';
-import { createAudio } from './audio.js?v=25';
-import { createWheels, paintWheel } from './wheels.js?v=25';
-import { createSteady } from './steady.js?v=25';
+import { loadRapier, simd } from './engine.js?v=26';
+import { CFG } from './config.js?v=26';
+import { machineFromLayout } from './machine.js?v=26';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=26';
+import { createAudio } from './audio.js?v=26';
+import { createWheels, paintWheel } from './wheels.js?v=26';
+import { createSteady } from './steady.js?v=26';
+import { createScreen } from './screen.js?v=26';
+import { spinOnce, describe } from './spin.js?v=26';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -280,6 +283,69 @@ if (M.chute?.board) {
 }
 let wheelCounts = [0, 0, 0];
 
+// Under each wheel, a lightning lamp: lit once a coin has gone through that
+// wheel. Light all three for the wheel spin on the screen above.
+const lampLook = [];
+function paintLamp(L, on) {
+  const g = L.ctx, n = 128, c = n / 2;
+  g.clearRect(0, 0, n, n);
+  g.beginPath(); g.arc(c, c, c - 3, 0, Math.PI * 2);
+  g.fillStyle = '#b9c2d6'; g.fill();                                   // the chrome rim
+  g.beginPath(); g.arc(c, c, c - 12, 0, Math.PI * 2);
+  const glow = g.createRadialGradient(c, c, 4, c, c, c - 12);
+  if (on) { glow.addColorStop(0, '#ffffff'); glow.addColorStop(0.55, '#bfe6ff'); glow.addColorStop(1, '#3f7dff'); }
+  else { glow.addColorStop(0, '#2c3a7a'); glow.addColorStop(1, '#141c48'); }
+  g.fillStyle = glow; g.fill();
+  const s = c * 0.55;                                                  // the bolt
+  g.beginPath();
+  g.moveTo(c + s * 0.15, c - s); g.lineTo(c - s * 0.55, c + s * 0.15); g.lineTo(c - s * 0.02, c + s * 0.12);
+  g.lineTo(c - s * 0.2, c + s); g.lineTo(c + s * 0.55, c - s * 0.18); g.lineTo(c + s * 0.02, c - s * 0.15); g.closePath();
+  g.fillStyle = on ? '#1f5cff' : '#55639e'; g.fill();
+  L.tex.needsUpdate = true; L.on = on;
+}
+if (M.chute?.board) {
+  const C = M.chute, face = C.scrapeZ;
+  for (const w of C.board.wheels) {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+    const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace;
+    const lamp = new THREE.Mesh(new THREE.CircleGeometry(1.5, 32), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
+    lamp.position.set(w.cx, w.cy - w.r - 1.6, face + 0.04);
+    scene.add(lamp);
+    const L = { ctx: canvas.getContext('2d'), tex, on: null };
+    paintLamp(L, false);
+    lampLook.push(L);
+  }
+}
+
+// The screen over the coin slot, where the wheel spin plays (screen.js).
+let screen = null, screenTex = null, nextMult = 1, superUntil = 0;
+if (M.chute) {
+  const C = M.chute, canvas = document.createElement('canvas');
+  canvas.width = 960; canvas.height = 540;
+  screenTex = new THREE.CanvasTexture(canvas); screenTex.colorSpace = THREE.SRGBColorSpace; screenTex.anisotropy = 4;
+  const SW = 36, SH = SW * 540 / 960, tilt = 0.18;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), new THREE.MeshBasicMaterial({ map: screenTex, transparent: true, toneMapped: false }));
+  // standing on the back wall's top, over the coin slot, leaning back a little
+  mesh.position.set(C.xc, M.bounds.hi[1] + 1.2 + SH / 2 * Math.cos(tilt), C.zc - 2.6 - SH / 2 * Math.sin(tilt));
+  mesh.rotation.x = -tilt;
+  scene.add(mesh);
+  screen = createScreen(canvas, {
+    onTick: () => audio.spinTick(),
+    onLand: () => audio.spinLand(),
+    onHole: () => audio.whoosh(),
+    onPrize: (prize, mult) => payPrize(prize, mult),
+  });
+}
+/** A wheel spin prize, paid out. */
+function payPrize(prize, mult) {
+  audio.fanfare();
+  if (prize.kind === 'double') { nextMult = 2; say('Next spin ×2!'); return; }
+  say(`Wheel spin: ${describe(prize, mult)}!`);
+  if (prize.kind === 'coins') sim.supply(Math.ceil(prize.n * mult / 2));
+  else if (prize.kind === 'balls') { for (let k = 0; k < Math.ceil(prize.n * mult / 2); k++) setTimeout(() => sim.ball(), k * 700); }
+  else if (prize.kind === 'push') { sim.superPush(prize.s * mult); superUntil = performance.now() + prize.s * mult * 1000; }
+}
+
 // The wheels' lights: each coin through a wheel moves its light on a slice;
 // stopping on a prize wins it. Coin prizes: ?prize=N coins from each supply.
 const PRIZE_COINS = Number.isFinite(+q.get('prize')) && q.get('prize') !== null ? +q.get('prize') : 5;
@@ -300,11 +366,11 @@ const wheels = createWheels((i, kind) => {
   else { sim.ball(); say(`${WHEEL_NAME[i]} wheel: balls!`); }
   if (wheelLook[i]) wheelLook[i].glow = 1;
 }, () => {
-  // all three lit: the bigger prize, all three flash, then the lights go out
-  sim.supply(ALL_LIT_COINS);
-  setTimeout(() => say(`All three lit: ${ALL_LIT_COINS * 2} coins!`), 600);
+  // all three lit: they flash, and the wheel spin plays on the screen
   celebrate = 1.6;
   wheelLook.forEach(w => { w.glow = 1; });
+  if (screen) { screen.play(spinOnce(), nextMult); nextMult = 1; }
+  else sim.supply(ALL_LIT_COINS);
 });
 const lampOn = i => wheels.on[i] || celebrate > 0;
 const repaint = i => { const w = wheelLook[i]; if (!w) return; paintWheel(w.ctx, 256, w.hex, wheels.lit[i], w.glow, lampOn(i)); w.tex.needsUpdate = true; };
@@ -500,12 +566,13 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=25', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=26', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
   sim = { insert: () => worker.postMessage({ type: 'insert' }), frame() {}, alpha: () => Math.min(1, (performance.now() - stateAt) * HZ / 1000),
-          supply: n => worker.postMessage({ type: 'supply', n }), ball: () => worker.postMessage({ type: 'ball' }) };
+          supply: n => worker.postMessage({ type: 'supply', n }), ball: () => worker.postMessage({ type: 'ball' }),
+          superPush: s => worker.postMessage({ type: 'superpush', s }) };
 } else {
   const RAPIER = await loadRapier();
   const field = createField(RAPIER, M, { ...SIM_OPTS, shape: 'box' });
@@ -516,6 +583,7 @@ if (USE_WORKER) {
     insert: () => field.insert(),
     supply: n => field.supply(n),
     ball: () => field.ball(),
+    superPush: s => field.superPush(s),
     frame(dt) {
       acc += dt;
       const step = field.world.timestep;
@@ -556,7 +624,7 @@ function fit() {
   if (view === 'angle') { yaw = 0.6; pitch = 0.45; } else if (!q.has('yaw')) { yaw = 0; pitch = +(q.get('pitch') || 0.62); }
   const B = M.bounds, lo = new THREE.Vector3(...B.lo), hi = new THREE.Vector3(...B.hi);
   target.copy(lo).add(hi).multiplyScalar(0.5);
-  target.y = lo.y + (hi.y - lo.y) * 0.16;          // a taller machine (a taller drop board) is aimed higher
+  target.y = lo.y + (hi.y - lo.y) * 0.27;          // aimed high enough to show the wheel spin's screen over the machine
   target.z += 0.1 * (hi.z - lo.z);
   const r = hi.distanceTo(lo) / 2;
   const half = camera.fov * DEG / 2, hz = Math.atan(Math.tan(half) * camera.aspect);
@@ -591,7 +659,7 @@ addEventListener('pointerdown', () => audio.unlock(), { once: false });
 // iPhones ignore the page's no-zoom settings for a pinch; this stops it there
 for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(type, e => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-let lastPhase = 0, simClock = 0;
+let lastPhase = 0, lastDir = 0, simClock = 0;
 function dropCoin() {
   if (bank <= 0) return;
   sim.insert();
@@ -603,6 +671,10 @@ document.getElementById('drop').addEventListener('click', e => { e.stopPropagati
 // so nothing comes out of your coins.
 document.getElementById('testCoins').addEventListener('click', e => { e.stopPropagation(); sim.supply(10); });
 document.getElementById('testBall').addEventListener('click', e => { e.stopPropagation(); sim.ball(); });
+// a wheel spin as if all three were lit; ?spin=1 plays one shortly after loading, ?spin=hole one that opens the Black Hole
+const testSpin = hole => { if (!screen) return; let r = spinOnce(); if (hole) while (r.hole === undefined) r = spinOnce(); screen.play(r, nextMult); nextMult = 1; };
+document.getElementById('testSpin').addEventListener('click', e => { e.stopPropagation(); testSpin(false); });
+if (q.has('spin')) setTimeout(() => { testSpin(q.get('spin') === 'hole'); for (let t = 0; t < +(q.get('at') || 0); t += 0.05) screen?.update(0.05); }, 300);   // &at=s: that far into the show (for screenshots)
 // ?fire=1 fires both once, shortly after loading (for testing)
 if (q.get('fire') === '1') setTimeout(() => { sim.supply(10); sim.ball(); }, 400);
 // ?advance=N moves every wheel's light on N slices shortly after loading (for testing)
@@ -641,9 +713,11 @@ function frame(now) {
   ballMesh.count = ballSlots.length;
   ballMesh.instanceMatrix.needsUpdate = true;
   if (payQueue) { bank += payQueue; audio.payout(payQueue); payQueue = 0; }
-  const phase = (simClock / CFG.period) % 1;
-  if (phase < lastPhase || (lastPhase < 0.5 && phase >= 0.5)) audio.clunk();
-  lastPhase = phase;
+  // the pusher reaching either end of its travel (it can be running fast: Super Push)
+  const pz = curPusher[0] ?? 0, dir = Math.sign(pz - lastPhase);
+  if (dir && lastDir && dir !== lastDir) audio.clunk();
+  if (dir) lastDir = dir;
+  lastPhase = pz;
   audio.tick();
   curPusher.forEach((z, i) => { pusherGroups[i].position.z = prevPusher[i] + (z - prevPusher[i]) * a; });
   guards.forEach((at, i) => {
@@ -651,6 +725,9 @@ function frame(now) {
     guardMeshes[i].rotation.set(0, 0, at.ang);
   });
   if (celebrate > 0 && (celebrate -= dt) <= 0) { celebrate = 0; wheelLook.forEach((_, i) => repaint(i)); }
+  // the lamps stay lit while a spin plays, then go out with it
+  lampLook.forEach((L, i) => { const on = wheels.on[i] || !!screen?.busy || celebrate > 0; if (on !== L.on) paintLamp(L, on); });
+  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); if (screen.update(dt)) screenTex.needsUpdate = true; }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;

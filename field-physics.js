@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=25';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=25';
+import { CFG } from './config.js?v=26';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=26';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -555,7 +555,7 @@ export function createField(RAPIER, M, opts = {}) {
   }
 
   const f = {
-    world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
+    world, coins, active, pushers, kindOf, weight, towers, towersWon: 0, pushT: 0, boostUntil: 0,
     wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0, toppled: 0,
     balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],
     supplyLeft: () => supplies.map(q => q.left),        // coins still to come out of each coin supply     // coins through each wheel; out of each of the board's 7 ways
@@ -740,8 +740,9 @@ export function createField(RAPIER, M, opts = {}) {
       // the pushers have to be where they were when it was recorded, or the
       // coins resting on them start out inside them
       f.elapsed = pile.elapsed ?? 0;
+      f.pushT = pile.pushT ?? f.elapsed;
       for (const p of pushers) {
-        p.z = (1 - Math.cos(f.elapsed / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+        p.z = (1 - Math.cos(f.pushT / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
         p.body.setTranslation({ x: 0, y: 0, z: p.z }, true);
       }
       for (const t of pile.coins) {
@@ -755,8 +756,14 @@ export function createField(RAPIER, M, opts = {}) {
 
     /** Everything at rest right now, as a pile that seedFrom() can load. */
     record() {
-      return { elapsed: Math.round(f.elapsed * 1e4) / 1e4, coins: f.recordCoins() };
+      return { elapsed: Math.round(f.elapsed * 1e4) / 1e4, pushT: Math.round(f.pushT * 1e4) / 1e4, coins: f.recordCoins() };
     },
+
+    /** Super Push: the pushers run at double speed for s more seconds - twice
+     *  the pushing, so the pile goes over the front faster. (Reaching further
+     *  instead would bring each pusher's back end out of the wall behind it,
+     *  leaving a gap for coins to fall into.) */
+    superPush(s) { f.boostUntil = Math.max(f.boostUntil, f.elapsed) + s; },
     recordCoins() {
       return active.map(c => {
         const t = c.body.translation(), q = c.body.rotation();
@@ -771,8 +778,10 @@ export function createField(RAPIER, M, opts = {}) {
     step(onMoved, onCollected) {
       f.elapsed += world.timestep;
       const tick = Math.round(f.elapsed / world.timestep);      // steps so far
+      // the pushers keep their own clock: Super Push runs it at double speed
+      f.pushT += world.timestep * (f.elapsed < f.boostUntil ? 2 : 1);
       for (const p of pushers) {
-        p.z = (1 - Math.cos(f.elapsed / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+        p.z = (1 - Math.cos(f.pushT / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
         p.body.setNextKinematicTranslation({ x: 0, y: 0, z: p.z });
       }
       for (const b of balls) {
