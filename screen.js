@@ -17,8 +17,8 @@
  *  the banner goes up, and onTowers() as the star tower show starts; the
  *  game does the rest.
  * ------------------------------------------------------------------ */
-import { RING, HOLE, STAR_FULL } from './spin.js?v=33';
-import { starPath } from './wheels.js?v=33';
+import { RING, HOLE, STAR_FULL } from './spin.js?v=34';
+import { starPath } from './wheels.js?v=34';
 
 const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6, army: 3.4 };
 const TAU = Math.PI * 2;

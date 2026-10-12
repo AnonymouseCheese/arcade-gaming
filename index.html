@@ -63,15 +63,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=33';
-import { CFG } from './config.js?v=33';
-import { machineFromLayout } from './machine.js?v=33';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=33';
-import { createAudio } from './audio.js?v=33';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=33';
-import { createSteady } from './steady.js?v=33';
-import { createScreen } from './screen.js?v=33';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=33';
+import { loadRapier, simd } from './engine.js?v=34';
+import { CFG } from './config.js?v=34';
+import { machineFromLayout } from './machine.js?v=34';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=34';
+import { createAudio } from './audio.js?v=34';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=34';
+import { createSteady } from './steady.js?v=34';
+import { createScreen } from './screen.js?v=34';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=34';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -409,13 +409,14 @@ if (M.chute) {
   });
 }
 // Star power: the yellow wheel's special and star prizes on the wheel spin
-// fill a bar of ten. Full, the screen plays STAR TOWER! and the star tower
-// army comes out - extra bars carry over.
+// fill a bar of ten. Full, the screen plays STAR TOWER! and the star towers
+// come out; the bar starts again from empty (nothing carries over).
 let starPower = 0, armyDue = false;
-// the star towers: stacks 10 across and 3 deep, coins in each (as tall as the centre pusher)
-const ARMY = { cols: 10, rows: 3, n: 24 };
+// the star towers: stacks 10 across and 3 deep, coins in each (18: as tall as the centre pusher)
+const ARMY = { cols: 10, rows: 3, n: 18 };
 function addStar(n) {
-  starPower += n;
+  if (armyDue) return;                           // full already: the towers are on their way
+  starPower = Math.min(STAR_FULL, starPower + n);
   screen?.setStar(starPower);
   if (starPower >= STAR_FULL && !armyDue) {
     armyDue = true;
@@ -424,12 +425,11 @@ function addStar(n) {
 }
 function sendTowers() {
   armyDue = false;
-  starPower = Math.max(0, starPower - STAR_FULL);
-  screen?.setStar(starPower);
+  starPower = 0;
+  screen?.setStar(0);
   sim.army(ARMY);
   audio.fanfare();
   say(`Star towers! ${ARMY.cols * ARMY.rows} stacks of ${ARMY.n} coins - watch the middle`);
-  if (starPower >= STAR_FULL) addStar(0);
 }
 /** A wheel spin prize, paid out. */
 function payPrize(prize, mult) {
@@ -651,7 +651,7 @@ const towerLooks = new Map();                    // by tower id
 const towerKit = new Map();                      // by coins in the stack: its geometry and look
 function towerKitFor(n) {
   if (towerKit.has(n)) return towerKit.get(n);
-  const h = n * CFG.coinT;
+  const h = n * CFG.colT;                        // as tall as the physics stack: its coins at their collider thickness
   // the side: each coin's milled edge, with a dark seam between coins
   const k = document.createElement('canvas'); k.width = 128; k.height = 16;
   const x = k.getContext('2d');
@@ -676,7 +676,7 @@ const TOWER_SLIDE = 8;                           // cm/s
 function drawTowers(a, dt) {
   for (const T of towerLooks.values()) {
     const P = T.prev, C = T.cur, lerp = k => P[k] + (C[k] - P[k]) * a;
-    const x = lerp(0), z = lerp(2), standing = Math.abs(C[6]) > 0.999;
+    const x = lerp(0), z = lerp(2), standing = 1 - 2 * (C[3] * C[3] + C[5] * C[5]) > 0.999;   // its axis still upright
     if (!T.shown || !standing) T.shown = { x, z };
     else {
       const dx = x - T.shown.x, dz = z - T.shown.z, d = Math.hypot(dx, dz), step = TOWER_SLIDE * dt;
@@ -746,11 +746,8 @@ function onState(m) {
     T.prev.set(T.cur); T.cur.set(m.towers.subarray(o + 1, o + 8));
     seenT.add(id);
   }
-  for (const [id, T] of towerLooks) {
-    if (seenT.has(id)) continue;
-    scene.remove(T.mesh); towerLooks.delete(id);
-    say(`Star tower over the edge: +${T.n} coins!`);
-  }
+  // gone from the physics: it came apart into loose coins, drawn as coins from now on
+  for (const [id, T] of towerLooks) if (!seenT.has(id)) { scene.remove(T.mesh); towerLooks.delete(id); }
   payQueue += m.paid;
   stateAt = performance.now();
 }
@@ -783,7 +780,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=33', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=34', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });

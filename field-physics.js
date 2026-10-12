@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=33';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=33';
+import { CFG } from './config.js?v=34';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=34';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -30,8 +30,9 @@ const CHUTE_SPEED = 45;   // cm/s - the fastest a coin may fall inside the drop 
 const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s back into the wall, s waiting there, cm/s back out
 // The star towers: the centre pusher backs slowly into its wall (cm/s), waits
 // while its coins drop off (s), sweeps out to full reach and back (cm/s), the
-// stacks rise out of the floor (s, then s to settle), and it pushes slowly out.
-const STAR_BACK = 4, STAR_DROP = 0.8, STAR_SWEEP = 6, STAR_RISE = 2, STAR_SETTLE = 0.6, STAR_OUT = 2.5;
+// stacks rise out of the floor (s, then s to settle), and it pushes slowly out
+// (cm/s) - slowly enough that no stack falls on that first push.
+const STAR_BACK = 4, STAR_DROP = 0.8, STAR_SWEEP = 6, STAR_RISE = 2, STAR_SETTLE = 0.6, STAR_OUT = 1.5;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -471,15 +472,16 @@ export function createField(RAPIER, M, opts = {}) {
   }
 
   /* ---- towers ----
-   * A tower is a stack of coins that gets pushed off the centre pusher and
-   * across the deck, and must not fall apart on the way. A real stack of
-   * loose discs would wobble and spill at the first nudge, so a tower is
-   * ONE solid body - a single cylinder the height of the stack - and it is
-   * not allowed to tip. It slides, it drops off the pusher still standing,
-   * it shoves through the pile. Only at the front edge is it let go: it
-   * tips over the edge and bursts into its loose coins, all of them yours. */
+   * A stack of coins on the field - the star towers. A stack of loose coins
+   * would shiver apart under the solver, so while it stands it is ONE body,
+   * a cylinder the height of its coins. It is pushed, slides, leans as a real
+   * stack does; leaning over too far (or off the deck) it comes apart into
+   * its loose coins, which fall the way they fall. On the star towers' first
+   * push it is held upright: that push is slow, and no stack falls on it. */
   const towers = [];
-  const STACK = CFG.coinT;                 // one coin's thickness in a stack, cm
+  const STACK = CFG.colT;                  // one coin's thickness in a stack, cm: its collider, so loose coins fill it exactly
+  const TOWER_EDGE = 0.15;                 // its rim rounded, cm: a sharp one caught the coins in a pile and flung them
+  const BREAK_TILT = 8 * Math.PI / 180;    // leaning further than this, a stack comes apart
   // A tower weighs half what its coins would. At full weight it pressed the
   // coins it stood on into the deck - six times the usual lifts back out.
   const TOWER_WEIGHT = 0.5;
@@ -527,6 +529,29 @@ export function createField(RAPIER, M, opts = {}) {
   // positive turns a hanging arm's tip toward +x (to the right)
   const wiperAngle = (at = f.elapsed) => ch ? ch.guards.swing * Math.sin(at / ch.guards.period * Math.PI * 2) : 0;
 
+  /** A stack comes apart into its loose coins, just where they were in it,
+   *  moving as it moved - round until they lie flat, like any toppled coin.
+   *  Not while the pool has too few coins to spare: then it stays whole. */
+  function breakStack(T) {
+    let spare = 0;
+    for (const c of coins) if (!c.live && ++spare >= T.n) break;
+    if (spare < T.n) return false;
+    const t = T.body.translation(), q = T.body.rotation(), v = T.body.linvel(), w = T.body.angvel();
+    const a = { x: 2 * (q.x * q.y - q.w * q.z), y: 1 - 2 * (q.x * q.x + q.z * q.z), z: 2 * (q.y * q.z + q.w * q.x) };   // its axis
+    for (let k = 0; k < T.n; k++) {
+      const c = f.take(), s = (k + 0.5) * STACK - T.h / 2, r = { x: a.x * s, y: a.y * s, z: a.z * s };
+      const th = Math.random() * Math.PI * 2, sy = Math.sin(th / 2), cy = Math.cos(th / 2);   // each turned its own way about the axis
+      f.wakeAt(c, [t.x + r.x, t.y + r.y, t.z + r.z, q.x * cy - q.z * sy, q.w * sy + q.y * cy, q.x * sy + q.z * cy, q.w * cy - q.y * sy]);
+      if (shape !== 'cylinder') { c.collider.setShape(DISC); c.round = true; }
+      c.outAt = f.elapsed;
+      c.body.setLinvel({ x: v.x + w.y * r.z - w.z * r.y, y: v.y + w.z * r.x - w.x * r.z, z: v.z + w.x * r.y - w.y * r.x }, true);
+      c.body.setAngvel(w, true);
+    }
+    world.removeRigidBody(T.body);
+    f.towersBroken++;
+    return true;
+  }
+
   /** The top of the floor under x, z: the highest solid there below the
    *  centre pusher's top. */
   function floorAt(x, z) {
@@ -562,6 +587,8 @@ export function createField(RAPIER, M, opts = {}) {
     } else {                                                 // slowly out, shoving them into the field
       p.z = Math.min(p.stroke, p.z + STAR_OUT * dt);
       if (p.z === p.stroke) {
+        // the first push is done: from now on each stack stands or falls as it will
+        for (const T of S.towers) if (towers.includes(T) && !T.free) { T.free = true; T.body.lockRotations(false, true); }
         for (const q of pushers) q.script = null;              // the side pushers carry on from where they stopped
         p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
         if (pushLater) { const k = pushLater; pushLater = 0; f.superPush(k); }
@@ -587,30 +614,13 @@ export function createField(RAPIER, M, opts = {}) {
         continue;
       }
       const t = T.body.translation(), v = T.body.linvel();
-      // nearly at the front edge, with nothing under its far side: let it tip
-      if (T.standing && t.z > D.z0 - CFG.coinR * 0.5 && t.x > D.x0 && t.x < D.x1) {
-        T.standing = false;
-        T.body.lockRotations(false, true);
-      }
-      // gone over - or tipping with its middle past the edge, so it cannot
-      // wedge across the gap in front: it bursts into its coins, already paid for
-      if ((t.y < D.y || (!T.standing && t.z > D.z0 + 0.4)) && t.z > D.z0 - 1) {
-        f.won += T.n;
-        f.towersWon++;
-        const q = T.body.rotation();
-        for (let k = 0; k < T.n; k++) {
-          const c = f.take();
-          if (!c) break;
-          const up = (k + 0.5) * STACK - T.h / 2;
-          const s = Math.random() * Math.PI;
-          f.wakeAt(c, [t.x + (Math.random() - 0.5) * 0.8, t.y + up, t.z + (Math.random() - 0.5) * 0.8, 0, Math.sin(s / 2), 0, Math.cos(s / 2)]);
-          c.body.setLinvel({ x: v.x + (Math.random() - 0.5) * 12, y: v.y, z: v.z + Math.random() * 8 }, true);
-          c.paidAt = f.elapsed;
+      // leaning over too far, or gone off the deck: it comes apart
+      if (T.free) {
+        const q = T.body.rotation(), up = 1 - 2 * (q.x * q.x + q.z * q.z);
+        if ((up < Math.cos(BREAK_TILT) || t.y - T.h / 2 < D.y - 1) && breakStack(T)) {
+          towers.splice(i, 1);
+          continue;
         }
-        if (onCollected) onCollected(T, true, T.n);
-        world.removeRigidBody(T.body);
-        towers.splice(i, 1);
-        continue;
       }
       // the pile in front of a moving tower makes way for it
       const flat = v.x * v.x + v.z * v.z;
@@ -646,7 +656,7 @@ export function createField(RAPIER, M, opts = {}) {
   }
 
   const f = {
-    world, coins, active, pushers, kindOf, weight, towers, towersWon: 0,
+    world, coins, active, pushers, kindOf, weight, towers, towersBroken: 0,
     wheels: [0, 0, 0], exits: new Array(7).fill(0), unstuck: 0, toppled: 0,
     balls, ballsIn: 0, ballsLost: 0, outlets: M.outlets || [],
     supplyLeft: () => supplies.map(q => q.left),        // coins still to come out of each coin supply     // coins through each wheel; out of each of the board's 7 ways
@@ -826,13 +836,14 @@ export function createField(RAPIER, M, opts = {}) {
         .setTranslation(x, rise ? floor - h / 2 - 0.1 : floor + h / 2 + 0.02, z)
         .setLinearDamping(CFG.linDamp).setAngularDamping(CFG.angDamp).setCanSleep(false));
       body.lockRotations(true, true);
-      const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(h / 2, CFG.coinR)
+      const collider = world.createCollider(RAPIER.ColliderDesc.roundCylinder(h / 2 - TOWER_EDGE, CFG.coinR - TOWER_EDGE, TOWER_EDGE)
         .setFriction(CFG.coinFriction).setRestitution(CFG.restitution)
         .setDensity(coins[0].collider.mass() * TOWER_WEIGHT / (Math.PI * CFG.coinR * CFG.coinR * STACK)), body);
       body.enableCcd(true);
-      const t = { id: ++towerIds, body, collider, n, h, standing: true, safe: null,
+      const t = { id: ++towerIds, body, collider, n, h, free: !rise, safe: null,
                   rise: rise ? { y0: floor - h / 2 - 0.1, y1: floor + h / 2 + 0.02, t0: f.elapsed } : null };
       towers.push(t);
+      if (!rise) body.lockRotations(false, true);
       if (onWake) onWake(t);
       return t;
     },
@@ -844,7 +855,7 @@ export function createField(RAPIER, M, opts = {}) {
      *  and it pushes slowly out, shoving them into the field. Pushed, they lose
      *  the neat block - but each stays standing until it reaches the edge.
      *  Waits for a Super Push under way to finish first. */
-    army({ cols = 10, rows = 3, n = 24 } = {}) {
+    army({ cols = 10, rows = 3, n = 18 } = {}) {
       starQueue.push({ cols, rows, n });
     },
     /** Are star towers on the way (the pushers doing their part)? */
