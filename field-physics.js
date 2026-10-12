@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=32';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=32';
+import { CFG } from './config.js?v=33';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=33';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -28,6 +28,10 @@ import { coinCollider } from './physics.js?v=32';
 const CHUTE_SIDE = +(globalThis.BOARD_SIDE ?? 70);   // cm/s - the fastest a coin may go sideways in the box
 const CHUTE_SPEED = 45;   // cm/s - the fastest a coin may fall inside the drop box
 const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s back into the wall, s waiting there, cm/s back out
+// The star towers: the centre pusher backs slowly into its wall (cm/s), waits
+// while its coins drop off (s), sweeps out to full reach and back (cm/s), the
+// stacks rise out of the floor (s, then s to settle), and it pushes slowly out.
+const STAR_BACK = 4, STAR_DROP = 0.8, STAR_SWEEP = 6, STAR_RISE = 2, STAR_SETTLE = 0.6, STAR_OUT = 2.5;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -429,14 +433,15 @@ export function createField(RAPIER, M, opts = {}) {
   /** If t is deep inside a pusher, where to put it instead: out of its
    *  front or over its top, whichever is nearer. Those are the only open
    *  sides - behind is the wall, below is the deck, either side the lane
-   *  walls - and they move with it, so the coin cannot end up back inside. */
-  function outOfPusher(t) {
+   *  walls - and they move with it, so the coin cannot end up back inside.
+   *  frontOnly: always out of its front (a standing stack, too tall for the top). */
+  function outOfPusher(t, frontOnly = false) {
     for (let n = 0; n < pushers.length; n++) {
       const dz = pushers[n].z;
       for (const b of pusherBoxes[n]) {
         if (!inBox(t, b, dz)) continue;
         const front = b[5] + PUSHER_SKIN + dz, top = b[3] + PUSHER_SKIN;
-        return front - t.z < top - t.y ? { x: t.x, y: t.y, z: front + CFG.coinR + 0.2 } : { x: t.x, y: top + 0.4, z: t.z };
+        return frontOnly || front - t.z < top - t.y ? { x: t.x, y: t.y, z: front + CFG.coinR + 0.2 } : { x: t.x, y: top + 0.4, z: t.z };
       }
     }
     return null;
@@ -479,6 +484,9 @@ export function createField(RAPIER, M, opts = {}) {
   // coins it stood on into the deck - six times the usual lifts back out.
   const TOWER_WEIGHT = 0.5;
   let towerIds = 0;
+  const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));   // the centre pusher: the lowest
+  const starQueue = [];                    // star tower sequences waiting their turn
+  let pushLater = 0;                       // Super Pushes won while the star towers come out
 
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the one before to clear the outlet
@@ -519,11 +527,65 @@ export function createField(RAPIER, M, opts = {}) {
   // positive turns a hanging arm's tip toward +x (to the right)
   const wiperAngle = (at = f.elapsed) => ch ? ch.guards.swing * Math.sin(at / ch.guards.period * Math.PI * 2) : 0;
 
+  /** The top of the floor under x, z: the highest solid there below the
+   *  centre pusher's top. */
+  function floorAt(x, z) {
+    let y = D.y;
+    for (const b of solidBoxes) if (x > b[0] && x < b[1] && z > b[4] && z < b[5] && b[3] < centre.top - 1) y = Math.max(y, b[3] + SKIN);
+    return y;
+  }
+  /** The centre pusher's part in the star towers (see army()). */
+  function stepStar(p, S, dt) {
+    if (S.stage === 'back' || S.stage === 'back2') {
+      p.z = Math.max(p.home, p.z - (S.stage === 'back' ? STAR_BACK : STAR_SWEEP) * dt);
+      if (p.z === p.home) {
+        if (S.stage === 'back') { S.stage = 'drop'; S.t = 0; return; }
+        // the floor it moves over is clear: the stacks rise out of it, in a
+        // block cols across, rows deep, from just in front of its face
+        const { cols, rows, n } = S.opts;
+        const lo = p.x0 + CFG.coinR + 0.6, hi = p.x1 - CFG.coinR - 0.6;
+        const pitch = cols > 1 ? (hi - lo) / (cols - 1) : CFG.coinR * 3;
+        const z0 = p.front + p.home + CFG.coinR + 0.8;
+        S.towers = [];
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) S.towers.push(f.tower(n, cols > 1 ? lo + pitch * c : (lo + hi) / 2, z0 + pitch * r, null, true));
+        }
+        S.stage = 'rise'; S.t = 0;
+      }
+    } else if (S.stage === 'drop') {                         // the coins on top drop off in front
+      if ((S.t += dt) >= STAR_DROP) S.stage = 'sweep';
+    } else if (S.stage === 'sweep') {                        // out to full reach, clearing its floor
+      p.z = Math.min(p.stroke, p.z + STAR_SWEEP * dt);
+      if (p.z === p.stroke) S.stage = 'back2';
+    } else if (S.stage === 'rise') {                         // the stacks come up
+      if ((S.t += dt) >= STAR_RISE + STAR_SETTLE) S.stage = 'out';
+    } else {                                                 // slowly out, shoving them into the field
+      p.z = Math.min(p.stroke, p.z + STAR_OUT * dt);
+      if (p.z === p.stroke) {
+        for (const q of pushers) q.script = null;              // the side pushers carry on from where they stopped
+        p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
+        if (pushLater) { const k = pushLater; pushLater = 0; f.superPush(k); }
+      }
+    }
+  }
+
   /** Towers: hold them upright until the front edge, shove the pile
    *  aside in front of them, and burst them into coins over the edge. */
   function stepTowers(onCollected) {
     for (let i = towers.length - 1; i >= 0; i--) {
       const T = towers[i];
+      if (T.rise) {
+        // coming up out of the floor, lifting whatever lies on it
+        const u = Math.min(1, (f.elapsed - T.rise.t0) / STAR_RISE), e = u * u * (3 - 2 * u);
+        const t = T.body.translation();
+        if (u < 1) { T.body.setNextKinematicTranslation({ x: t.x, y: T.rise.y0 + (T.rise.y1 - T.rise.y0) * e, z: t.z }); continue; }
+        T.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+        T.body.lockRotations(true, true);
+        T.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        T.rise = null;
+        T.safe = T.body.translation();
+        continue;
+      }
       const t = T.body.translation(), v = T.body.linvel();
       // nearly at the front edge, with nothing under its far side: let it tip
       if (T.standing && t.z > D.z0 - CFG.coinR * 0.5 && t.x > D.x0 && t.x < D.x1) {
@@ -563,7 +625,16 @@ export function createField(RAPIER, M, opts = {}) {
           }
         }
       }
-      if ((insideSolid(t) || outOfPusher(t)) && T.safe) {
+      // Overrun by a pusher (squeezed against a jammed pile): out in front of
+      // its face, still standing. (Put back where it last was, it was inside
+      // the pusher again by then - and was put back every step, for good.)
+      const out = outOfPusher(t, true);
+      if (out) {
+        T.body.setTranslation(out, true);
+        T.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        T.safe = out;
+        f.rescues++;
+      } else if (insideSolid(t) && T.safe) {
         T.body.setTranslation({ x: T.safe.x, y: T.safe.y + 0.3, z: T.safe.z }, true);
         T.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
         f.rescues++;
@@ -729,13 +800,12 @@ export function createField(RAPIER, M, opts = {}) {
       return c;
     },
 
-    /** Put a tower of n coins on the centre pusher's top, at x (cm; by
-     *  default the middle) and z (cm, in the world; by default just in front
-     *  of the drop box's glass - the glass comes down to 3 cm over the
-     *  pusher, so a tower behind it would be pinned there). It is set down
-     *  on top of whatever coins are under it, so nothing starts inside it. */
-    tower(n, x, z, onWake) {
-      const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));
+    /** Put a stack of n coins at x, z (cm, in the world; by default on the
+     *  centre pusher's top, just in front of the drop box's glass - the glass
+     *  comes down to 3 cm over the pusher, so a stack behind it would be
+     *  pinned there), set down on whatever coins are under it. Or, rise: it
+     *  comes up out of the floor there, lifting any coin in its way. */
+    tower(n, x, z, onWake, rise = false) {
       const h = n * STACK;
       const glass = ch?.parts.find(b => b.kind === 'glass');
       x ??= (centre.x0 + centre.x1) / 2;
@@ -751,37 +821,34 @@ export function createField(RAPIER, M, opts = {}) {
                       Math.abs(2 * (q.y * q.z - q.w * q.x)) * CFG.coinR;
         floor = Math.max(floor, t.y + reach);
       }
-      const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(x, floor + h / 2 + 0.02, z)
+      if (rise) floor = floorAt(x, z);
+      const body = world.createRigidBody((rise ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.dynamic())
+        .setTranslation(x, rise ? floor - h / 2 - 0.1 : floor + h / 2 + 0.02, z)
         .setLinearDamping(CFG.linDamp).setAngularDamping(CFG.angDamp).setCanSleep(false));
       body.lockRotations(true, true);
       const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(h / 2, CFG.coinR)
         .setFriction(CFG.coinFriction).setRestitution(CFG.restitution)
         .setDensity(coins[0].collider.mass() * TOWER_WEIGHT / (Math.PI * CFG.coinR * CFG.coinR * STACK)), body);
       body.enableCcd(true);
-      const t = { id: ++towerIds, body, collider, n, h, standing: true, safe: null };
+      const t = { id: ++towerIds, body, collider, n, h, standing: true, safe: null,
+                  rise: rise ? { y0: floor - h / 2 - 0.1, y1: floor + h / 2 + 0.02, t0: f.elapsed } : null };
       towers.push(t);
       if (onWake) onWake(t);
       return t;
     },
 
-    /** The star tower army: towers of n coins in a block, cols across the
-     *  centre deck and rows front to back, evenly spaced, the middle row at z
-     *  (cm; by default the middle of the deck). Pushed, they lose the neat
-     *  block - but each stays standing until it reaches the edge. */
-    army({ cols = 10, rows = 3, n = 12, z } = {}) {
-      const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));
-      const lo = centre.x0 + CFG.coinR + 0.6, hi = centre.x1 - CFG.coinR - 0.6;
-      const pitch = cols > 1 ? (hi - lo) / (cols - 1) : 0;
-      z ??= D.z0 - 17;
-      const out = [];
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          out.push(f.tower(n, cols > 1 ? lo + pitch * c : (lo + hi) / 2, z + (r - (rows - 1) / 2) * (pitch || CFG.coinR * 3)));
-        }
-      }
-      return out;
+    /** The star towers: the side pushers stop; the centre pusher backs
+     *  slowly into its wall, so every coin on it drops off in front; it sweeps
+     *  out to full reach and back, clearing the floor it usually moves over;
+     *  stacks of n coins rise out of that floor, cols across and rows deep;
+     *  and it pushes slowly out, shoving them into the field. Pushed, they lose
+     *  the neat block - but each stays standing until it reaches the edge.
+     *  Waits for a Super Push under way to finish first. */
+    army({ cols = 10, rows = 3, n = 24 } = {}) {
+      starQueue.push({ cols, rows, n });
     },
+    /** Are star towers on the way (the pushers doing their part)? */
+    get starComing() { return starQueue.length > 0 || pushers.some(p => p.script?.kind === 'star'); },
 
     /** Where the guards are, for drawing them. */
     guardAt(g) {
@@ -820,13 +887,14 @@ export function createField(RAPIER, M, opts = {}) {
      *  them, and the pile in front, on toward the edge. Then it carries on
      *  as before from there. */
     superPush(times = 1) {
+      if (f.starComing) { pushLater += times; return; }       // after the star towers
       for (const p of pushers) {
         if (p.script) p.script.times += times;
         else p.script = { stage: 'back', times, t: 0 };
       }
     },
     /** Is a Super Push under way? */
-    get superPushing() { return pushers.some(p => p.script); },
+    get superPushing() { return pushers.some(p => p.script && !p.script.kind); },
     recordCoins() {
       return active.map(c => {
         const t = c.body.translation(), q = c.body.rotation();
@@ -841,11 +909,19 @@ export function createField(RAPIER, M, opts = {}) {
     step(onMoved, onCollected) {
       f.elapsed += world.timestep;
       const tick = Math.round(f.elapsed / world.timestep);      // steps so far
+      if (starQueue.length && !pushers.some(p => p.script)) {
+        const opts = starQueue.shift();
+        for (const p of pushers) p.script = p === centre ? { kind: 'star', stage: 'back', t: 0, opts } : { kind: 'hold' };
+      }
       for (const p of pushers) {
         const S = p.script, dt = world.timestep;
         if (!S) {
           p.clock += dt;
           p.z = (1 - Math.cos(p.clock / period * Math.PI * 2 + p.phase)) / 2 * p.stroke;
+        } else if (S.kind === 'hold') {
+          // stopped where it is while the star towers come out: its clock stops too
+        } else if (S.kind === 'star') {
+          stepStar(p, S, dt);
         } else if (S.stage === 'back') {                       // quickly back into the wall
           p.z = Math.max(p.home, p.z - SUPER_BACK * dt);
           if (p.z === p.home) { S.stage = 'wait'; S.t = 0; }
@@ -1216,7 +1292,7 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing, towersComing: f.starComing },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];

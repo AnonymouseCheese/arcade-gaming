@@ -17,8 +17,8 @@
  *  the banner goes up, and onTowers() as the star tower show starts; the
  *  game does the rest.
  * ------------------------------------------------------------------ */
-import { RING, HOLE, STAR_FULL } from './spin.js?v=32';
-import { starPath } from './wheels.js?v=32';
+import { RING, HOLE, STAR_FULL } from './spin.js?v=33';
+import { starPath } from './wheels.js?v=33';
 
 const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6, army: 3.4 };
 const TAU = Math.PI * 2;
@@ -29,7 +29,7 @@ export function createScreen(canvas, hooks = {}) {
   const W = canvas.width, H = canvas.height;
   const cx = W / 2, cy = H * 0.55, R = H * 0.30, SR = H * 0.082;     // the ring, and each prize on it
   let time = 0, idleDraw = 0, lamps = [false, false, false], at = 0;  // at: the lit slot when idle
-  let show = null, pushing = false;
+  let show = null, pushing = false, towersComing = false;
   let star = 0, starShown = 0, starStep = 0;                          // the star bar: bars won, bars lit so far
   const queue = [];
 
@@ -239,6 +239,12 @@ export function createScreen(canvas, hooks = {}) {
       centreText([['PUSH THEM OVER THE EDGE!', Math.round(H * 0.05), '#ffffff', R + SR * 0.4]]);
       return;
     }
+    if (!s && towersComing) {
+      title('STAR TOWER', '#ffe866');
+      portal(R * (0.9 + 0.1 * Math.sin(time * 5)), 1);
+      centreText([['HERE THEY COME!', Math.round(H * 0.1), '#ffffff', -H * 0.03], ['LOOK AT THE MIDDLE', Math.round(H * 0.05), '#ffe866', H * 0.09]]);
+      return;
+    }
     if (!s && pushing) {
       title('SUPER PUSH', '#3dff7a');
       portal(R * (0.9 + 0.1 * Math.sin(time * 5)), 0);
@@ -315,6 +321,8 @@ export function createScreen(canvas, hooks = {}) {
     play(result, mult = 1) { queue.push({ result, mult }); if (!show) next(); },
     /** The pushers are doing a Super Push: the screen says so, between shows. */
     setPushing(on) { if (on !== pushing) { pushing = on; idleDraw = 1; } },
+    /** The pushers are bringing out the star towers: the screen says so, between shows. */
+    setTowersComing(on) { if (on !== towersComing) { towersComing = on; idleDraw = 1; } },
     /** The three lamps under the wheels, for the idle screen. */
     setLamps(on) { if (on.some((v, i) => v !== lamps[i])) { lamps = on.slice(); idleDraw = 1; } },
     /** Advance by dt seconds; true if the canvas was repainted. */

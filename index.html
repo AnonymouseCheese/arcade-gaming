@@ -63,15 +63,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=32';
-import { CFG } from './config.js?v=32';
-import { machineFromLayout } from './machine.js?v=32';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=32';
-import { createAudio } from './audio.js?v=32';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=32';
-import { createSteady } from './steady.js?v=32';
-import { createScreen } from './screen.js?v=32';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=32';
+import { loadRapier, simd } from './engine.js?v=33';
+import { CFG } from './config.js?v=33';
+import { machineFromLayout } from './machine.js?v=33';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=33';
+import { createAudio } from './audio.js?v=33';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=33';
+import { createSteady } from './steady.js?v=33';
+import { createScreen } from './screen.js?v=33';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=33';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -412,8 +412,8 @@ if (M.chute) {
 // fill a bar of ten. Full, the screen plays STAR TOWER! and the star tower
 // army comes out - extra bars carry over.
 let starPower = 0, armyDue = false;
-// a block of towers 10 across and 3 deep, coins in each; set down mid-deck (?towerz= cm from the back, for the middle row)
-const ARMY = { cols: 10, rows: 3, n: 12, ...(q.has('towerz') ? { z: +q.get('towerz') } : {}) };
+// the star towers: stacks 10 across and 3 deep, coins in each (as tall as the centre pusher)
+const ARMY = { cols: 10, rows: 3, n: 24 };
 function addStar(n) {
   starPower += n;
   screen?.setStar(starPower);
@@ -428,7 +428,7 @@ function sendTowers() {
   screen?.setStar(starPower);
   sim.army(ARMY);
   audio.fanfare();
-  say(`Star tower army! ${ARMY.cols * ARMY.rows} towers of ${ARMY.n} coins`);
+  say(`Star towers! ${ARMY.cols * ARMY.rows} stacks of ${ARMY.n} coins - watch the middle`);
   if (starPower >= STAR_FULL) addStar(0);
 }
 /** A wheel spin prize, paid out. */
@@ -645,18 +645,10 @@ const ballPrev = new Float32Array(MAXB * 7), ballCur = new Float32Array(MAXB * 7
 let ballSlots = [];
 let prevPusher = M.pushers.map(() => 0), curPusher = prevPusher.slice(), guards = [];
 
-// The star towers: a stack of coins, a gold star turning over it. Each grows
-// up out of where it is set down; gone from the physics, it has burst.
+// The star towers: plain stacks of coins. They rise out of the floor in the
+// physics, so the floor hides them until they are up.
 const towerLooks = new Map();                    // by tower id
 const towerKit = new Map();                      // by coins in the stack: its geometry and look
-const starGeo = (() => {
-  const sh = new THREE.Shape(), r = 1.15;
-  for (let k = 0; k < 10; k++) { const a = Math.PI / 2 + Math.PI * k / 5, rr = k % 2 ? r * 0.45 : r; k ? sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); }
-  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 2 });
-  g.translate(0, 0, -0.11);
-  return g;
-})();
-const starMat = new THREE.MeshStandardMaterial({ color: 0xffc83a, metalness: 1, roughness: 0.22, emissive: 0x8a5a00, emissiveIntensity: 0.55, envMapIntensity: 1.6 });
 function towerKitFor(n) {
   if (towerKit.has(n)) return towerKit.get(n);
   const h = n * CFG.coinT;
@@ -664,34 +656,34 @@ function towerKitFor(n) {
   const k = document.createElement('canvas'); k.width = 128; k.height = 16;
   const x = k.getContext('2d');
   for (let i = 0; i < 128; i++) { x.fillStyle = i % 2 ? '#7c8494' : '#c9cfd9'; x.fillRect(i, 0, 1, 16); }
-  x.fillStyle = '#3c4250'; x.fillRect(0, 0, 128, 2);
+  x.fillStyle = '#4a505e'; x.fillRect(0, 0, 128, 2);
   const tex = new THREE.CanvasTexture(k); tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, n);
-  const kit = { h, geo: new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, h, 28),
+  const kit = { geo: new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, h, 28),
                 mats: [Mat({ map: tex, metalness: 0.9, roughness: 0.38, envMapIntensity: 1.4 }), coinFaceMat, coinFaceMat] };
   towerKit.set(n, kit);
   return kit;
 }
 function makeTower(n) {
-  const kit = towerKitFor(n), group = new THREE.Group();
-  const stack = new THREE.Mesh(kit.geo, kit.mats), star = new THREE.Mesh(starGeo, starMat);
-  group.add(stack, star);
-  scene.add(group);
-  return { group, stack, star, h: kit.h, n, born: performance.now(), prev: new Float32Array(7), cur: new Float32Array(7) };
+  const kit = towerKitFor(n), mesh = new THREE.Mesh(kit.geo, kit.mats);
+  scene.add(mesh);
+  return { mesh, n, prev: new Float32Array(7), cur: new Float32Array(7), shown: null };
 }
-function drawTowers(a) {
-  const now = performance.now();
+// Shoved into the pile as a block, a stack now and then jumps a centimetre
+// or two in one step (or is put back out in front of the pusher). Drawn, it
+// slides there instead: while it stands, at most this fast sideways.
+const TOWER_SLIDE = 8;                           // cm/s
+function drawTowers(a, dt) {
   for (const T of towerLooks.values()) {
     const P = T.prev, C = T.cur, lerp = k => P[k] + (C[k] - P[k]) * a;
-    T.group.position.set(lerp(0), lerp(1), lerp(2));
-    T.group.quaternion.set(C[3], C[4], C[5], C[6]);
-    // growing up out of the field, from its foot
-    const u = Math.min(1, (now - T.born) / 500), grow = 1 - (1 - u) ** 3;
-    T.stack.scale.y = Math.max(0.01, grow);
-    T.stack.position.y = -T.h / 2 * (1 - grow);
-    T.star.position.y = -T.h / 2 + T.h * grow + 1.45;
-    T.star.scale.setScalar(grow);
-    T.star.rotation.y = now / 600;
+    const x = lerp(0), z = lerp(2), standing = Math.abs(C[6]) > 0.999;
+    if (!T.shown || !standing) T.shown = { x, z };
+    else {
+      const dx = x - T.shown.x, dz = z - T.shown.z, d = Math.hypot(dx, dz), step = TOWER_SLIDE * dt;
+      if (d > step) { T.shown.x += dx / d * step; T.shown.z += dz / d * step; } else { T.shown.x = x; T.shown.z = z; }
+    }
+    T.mesh.position.set(T.shown.x, lerp(1), T.shown.z);
+    T.mesh.quaternion.set(C[3], C[4], C[5], C[6]);
   }
 }
 
@@ -756,7 +748,7 @@ function onState(m) {
   }
   for (const [id, T] of towerLooks) {
     if (seenT.has(id)) continue;
-    scene.remove(T.group); towerLooks.delete(id);
+    scene.remove(T.mesh); towerLooks.delete(id);
     say(`Star tower over the edge: +${T.n} coins!`);
   }
   payQueue += m.paid;
@@ -791,7 +783,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=32', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=33', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -843,7 +835,7 @@ function fit() {
   if (view === 'deck') {
     // ?view=deck: close on the centre deck, to watch the star towers (&yaw= &pitch= &dist= to move round)
     const D = M.zones.drop;
-    target.set((D.x0 + D.x1) / 2, 4, D.z0 - 15);
+    target.set((D.x0 + D.x1) / 2, 4, D.z0 - 22);
     yaw = +(q.get('yaw') || 0.35); pitch = +(q.get('pitch') || 0.5); dist = +(q.get('dist') || 85);
     return;
   }
@@ -940,7 +932,7 @@ function frame(now) {
   sim.frame(dt);
   const a = sim.alpha();
   drawCoins(a);
-  drawTowers(a);
+  drawTowers(a, dt);
   ballSlots.forEach((s, n) => {
     const o = s * 7, lerp = k => ballPrev[o + k] + (ballCur[o + k] - ballPrev[o + k]) * a;
     dummy.position.set(lerp(0), lerp(1), lerp(2));
@@ -965,7 +957,7 @@ function frame(now) {
   if (celebrate > 0 && (celebrate -= dt) <= 0) { celebrate = 0; wheelLook.forEach((_, i) => repaint(i)); }
   // the lamps stay lit while a spin plays, then go out with it
   lampLook.forEach((L, i) => { const on = wheels.on[i] || !!screen?.busy || celebrate > 0; if (on !== L.on) paintLamp(L, on); });
-  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); if (screen.update(dt)) screenTex.needsUpdate = true; }
+  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); screen.setTowersComing(!!lastStats?.towersComing); if (screen.update(dt)) screenTex.needsUpdate = true; }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
