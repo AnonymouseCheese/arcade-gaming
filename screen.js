@@ -10,21 +10,27 @@
  *    draw      (Black Hole only) its own prizes flick past in the middle
  *    congrats  the prize, in a banner - and it is paid out
  *
+ *  Down the right side is the star bar, ten bars of star power. When it is
+ *  full a show of its own plays - STAR TOWER! - and the towers come out.
+ *
  *  Nothing here touches the machine: onPrize(prize, mult) is called when
- *  the banner goes up, and the game pays it.
+ *  the banner goes up, and onTowers() as the star tower show starts; the
+ *  game does the rest.
  * ------------------------------------------------------------------ */
-import { RING, HOLE, describe } from './spin.js?v=31';
+import { RING, HOLE, STAR_FULL } from './spin.js?v=32';
+import { starPath } from './wheels.js?v=32';
 
-const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6 };
+const T = { spin: 3.4, land: 0.9, vortex: 2.4, draw: 1.9, reveal: 0.6, congrats: 2.6, army: 3.4 };
 const TAU = Math.PI * 2;
 const easeOut = u => 1 - (1 - u) ** 3;
 
 export function createScreen(canvas, hooks = {}) {
   const g = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  const cx = W / 2, cy = H * 0.57, R = H * 0.33, SR = H * 0.088;     // the ring, and each prize on it
+  const cx = W / 2, cy = H * 0.55, R = H * 0.30, SR = H * 0.082;     // the ring, and each prize on it
   let time = 0, idleDraw = 0, lamps = [false, false, false], at = 0;  // at: the lit slot when idle
   let show = null, pushing = false;
+  let star = 0, starShown = 0, starStep = 0;                          // the star bar: bars won, bars lit so far
   const queue = [];
 
   const slotXY = k => { const a = -Math.PI / 2 + TAU * k / RING.length; return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
@@ -32,6 +38,7 @@ export function createScreen(canvas, hooks = {}) {
   function next() {
     const job = queue.shift();
     if (!job) { show = null; return; }
+    if (job.towers) { show = { ...job, phase: 'army', t: 0, out: false }; return; }
     const { result } = job;
     // the light runs two laps and on to the prize
     const steps = RING.length * 2 + ((result.slot - at) % RING.length + RING.length) % RING.length;
@@ -41,7 +48,7 @@ export function createScreen(canvas, hooks = {}) {
 
   function phaseDone() {
     const s = show;
-    const order = s.result.hole === undefined ? ['spin', 'land', 'congrats'] : ['spin', 'land', 'vortex', 'draw', 'reveal', 'congrats'];
+    const order = s.towers ? ['army'] : s.result.hole === undefined ? ['spin', 'land', 'congrats'] : ['spin', 'land', 'vortex', 'draw', 'reveal', 'congrats'];
     const i = order.indexOf(s.phase);
     if (i === order.length - 1) { next(); return; }
     s.phase = order[i + 1]; s.t = 0;
@@ -129,17 +136,50 @@ export function createScreen(canvas, hooks = {}) {
     g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
     g.lineWidth = 7; g.strokeStyle = light ? '#fff6c0' : p.color; g.stroke();
     g.restore();
-    if (p.kind === 'hole') holeIcon(x, y, r * 0.72);
-    else {
-      g.fillStyle = dim ? 'rgba(255,255,255,0.4)' : '#ffffff';
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.font = `900 ${Math.round(r * (p.label.length > 2 ? 0.55 : 0.8))}px system-ui, sans-serif`;
-      g.fillText(p.label, x, y - r * 0.08);
-    }
-    g.fillStyle = dim ? 'rgba(255,255,255,0.35)' : p.color;
-    g.font = `800 ${Math.round(SR * 0.3)}px system-ui, sans-serif`;
+    if (p.kind === 'hole') { holeIcon(x, y, r * 0.72); return; }
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(p.sub, x, y + r + SR * 0.32);
+    if (p.kind === 'star') {
+      starPath(g, x, y - r * 0.12, r * 0.66);
+      g.fillStyle = dim ? '#6b6232' : p.color; g.fill();
+      g.fillStyle = '#3a2400';
+    } else g.fillStyle = dim ? 'rgba(255,255,255,0.4)' : '#ffffff';
+    g.font = `900 ${Math.round(r * (p.label.length > 2 ? 0.48 : p.kind === 'star' ? 0.5 : 0.72))}px system-ui, sans-serif`;
+    g.fillText(p.label, x, y - r * (p.kind === 'star' ? 0.06 : 0.16));
+    // what it is, small, under the number - inside the circle, so ten fit round the ring
+    g.fillStyle = dim ? 'rgba(255,255,255,0.35)' : p.color;
+    g.font = `800 ${Math.round(SR * 0.27)}px system-ui, sans-serif`;
+    g.fillText(p.sub, x, y + r * 0.56);
+  }
+
+  /** The star bar, down the right side: ten bars, lit from the bottom. */
+  function starBar(flash = 0) {
+    const w = W * 0.07, x = W * 0.84, top = H * 0.30, bottom = H * 0.86, gap = 4;
+    const h = (bottom - top - gap * (STAR_FULL - 1)) / STAR_FULL;
+    for (let k = 0; k < STAR_FULL; k++) {
+      const y = bottom - (k + 1) * h - k * gap, on = k < starShown;
+      g.save();
+      if (on) { g.shadowColor = '#ffe680'; g.shadowBlur = flash ? 26 : 12; }
+      const grd = g.createLinearGradient(x, y, x + w, y);
+      if (on) { grd.addColorStop(0, '#ffb01f'); grd.addColorStop(0.5, flash && Math.sin(time * 20 - k) > 0 ? '#ffffff' : '#fff27a'); grd.addColorStop(1, '#ffb01f'); }
+      else { grd.addColorStop(0, '#141c4a'); grd.addColorStop(1, '#1d2766'); }
+      g.fillStyle = grd;
+      g.beginPath(); g.roundRect(x, y, w, h, 6); g.fill();
+      g.restore();
+      g.lineWidth = 2; g.strokeStyle = on ? '#fff6c0' : '#3a4a9a';
+      g.beginPath(); g.roundRect(x, y, w, h, 6); g.stroke();
+    }
+    // a star over it, and the count under it
+    const sx = x + w / 2, sy = top - H * 0.075;
+    g.save();
+    g.shadowColor = '#ffe680'; g.shadowBlur = starShown >= STAR_FULL || flash ? 30 : 10;
+    starPath(g, sx, sy, H * 0.055 * (1 + (flash ? 0.12 * Math.sin(time * 10) : 0)));
+    g.fillStyle = starShown ? '#ffe866' : '#6b6232'; g.fill();
+    g.restore();
+    g.lineWidth = 2; g.strokeStyle = '#a8530a'; g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = `900 ${Math.round(H * 0.034)}px system-ui, sans-serif`;
+    g.fillStyle = '#ffe866';
+    g.fillText(`${starShown}/${STAR_FULL}`, sx, bottom + H * 0.04);
   }
 
   function lampIcons(y) {
@@ -176,12 +216,29 @@ export function createScreen(canvas, hooks = {}) {
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = `900 ${Math.round(H * 0.075)}px system-ui, sans-serif`;
     g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,30,0.9)';
-    g.strokeText(text, cx, H * 0.13); g.fillStyle = color; g.fillText(text, cx, H * 0.13);
+    g.strokeText(text, cx, H * 0.11); g.fillStyle = color; g.fillText(text, cx, H * 0.11);
   }
 
   function paint() {
     frame();
     const s = show;
+    starBar(s?.towers ? 1 : 0);
+    if (s?.towers) {
+      title('STAR TOWER!', '#ffe866');
+      portal(R * (0.7 + 0.08 * Math.sin(time * 6)), 1);
+      // a big star, spinning in
+      const u = Math.min(1, s.t / 0.6);
+      g.save(); g.translate(cx, cy); g.rotate((1 - u) * 4); g.scale(u, u);
+      g.shadowColor = '#fff3a0'; g.shadowBlur = 40;
+      starPath(g, 0, 0, R * 0.62); g.fillStyle = '#ffe866'; g.fill();
+      g.shadowBlur = 0; g.lineWidth = 6; g.strokeStyle = '#a8530a'; g.stroke();
+      g.restore();
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `900 ${Math.round(H * 0.07)}px system-ui, sans-serif`;
+      g.fillStyle = '#3a2400'; g.fillText('ARMY', cx, cy + H * 0.01);
+      centreText([['PUSH THEM OVER THE EDGE!', Math.round(H * 0.05), '#ffffff', R + SR * 0.4]]);
+      return;
+    }
     if (!s && pushing) {
       title('SUPER PUSH', '#3dff7a');
       portal(R * (0.9 + 0.1 * Math.sin(time * 5)), 0);
@@ -236,7 +293,7 @@ export function createScreen(canvas, hooks = {}) {
     g.lineWidth = 6; g.strokeStyle = p.color; g.stroke();
     const big = p.kind === 'push' ? 'SUPER PUSH' : p.label, n = (p.times || 1) * s.mult;
     centreText([[big, Math.round(H * (p.kind === 'push' ? 0.11 : 0.17)), '#ffffff', -H * 0.04],
-                [p.kind === 'push' ? (n > 1 ? `×${n}` : 'ALL THE WAY BACK') : p.kind === 'double' ? 'NEXT SPIN' : (s.mult > 1 && s.phase === 'congrats' ? `${p.sub} ×2` : p.sub), Math.round(H * 0.055), p.color, H * 0.11]]);
+                [p.kind === 'push' ? (n > 1 ? `×${n}` : 'ALL THE WAY BACK') : p.kind === 'double' ? 'NEXT SPIN' : (s.mult > 1 && s.phase === 'congrats' && !p.full ? `${p.kind === 'star' ? 'STAR POWER' : p.sub} ×2` : p.kind === 'star' ? 'STAR POWER' : p.sub), Math.round(H * 0.055), p.color, H * 0.11]]);
     g.restore();
     if (s.phase === 'congrats') {
       // a ribbon of confetti
@@ -250,6 +307,10 @@ export function createScreen(canvas, hooks = {}) {
 
   return {
     get busy() { return !!show || queue.length > 0; },
+    /** Bars of star power won so far (the bar lights up to it, a bar at a time). */
+    setStar(n) { star = Math.max(0, Math.min(STAR_FULL, n)); idleDraw = 1; },
+    /** The star bar is full: queue the star tower show. */
+    towers() { queue.push({ towers: true }); if (!show) next(); },
     /** Queue a show for this spin result; mult is a ×2 won on the last spin. */
     play(result, mult = 1) { queue.push({ result, mult }); if (!show) next(); },
     /** The pushers are doing a Super Push: the screen says so, between shows. */
@@ -259,6 +320,12 @@ export function createScreen(canvas, hooks = {}) {
     /** Advance by dt seconds; true if the canvas was repainted. */
     update(dt) {
       time += dt;
+      // the star bar catches up a bar at a time
+      if (starShown !== star && (starStep += dt) > (star > starShown ? 0.14 : 0.04)) {
+        const up = star > starShown;
+        starStep = 0; starShown += up ? 1 : -1; idleDraw = 1;
+        if (up) hooks.onStar?.(starShown);
+      }
       const s = show;
       if (!s) {
         idleDraw += dt;
@@ -272,6 +339,7 @@ export function createScreen(canvas, hooks = {}) {
         if (now !== s.shown) { s.shown = now; hooks.onTick?.(); }
         if (s.t >= T.spin) { s.shown = s.result.slot; at = s.result.slot; }
       }
+      if (s.phase === 'army' && !s.out && s.t > 0.6) { s.out = true; hooks.onTowers?.(); }
       if (s.phase === 'draw') {
         const k = Math.floor(easeOut(Math.min(1, s.t / T.draw)) * s.holeSteps);
         if (k !== s.holeShown) { s.holeShown = k; hooks.onTick?.(); }

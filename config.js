@@ -96,7 +96,7 @@ export const CFG = {
                        // and that no nudge could shake loose. A clear gap in
                        // the middle has no feature to rest on at all.
   chuteNudgeAfter: 1.2, // seconds stuck in the chute before a shove
-  chuteNudge:      5.5, // flick speed. A real machine vibrates; this is that.
+  chuteNudge:      5.5, // flick speed. An arcade cabinet vibrates; this is that.
   antlerHalfL:  3.1,
   antlerTilt:   0.42,  // radians
 

@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=31';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=31';
+import { CFG } from './config.js?v=32';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=32';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -475,6 +475,10 @@ export function createField(RAPIER, M, opts = {}) {
    * tips over the edge and bursts into its loose coins, all of them yours. */
   const towers = [];
   const STACK = CFG.coinT;                 // one coin's thickness in a stack, cm
+  // A tower weighs half what its coins would. At full weight it pressed the
+  // coins it stood on into the deck - six times the usual lifts back out.
+  const TOWER_WEIGHT = 0.5;
+  let towerIds = 0;
 
   const active = [];
   const slot = [];                         // coins dropped in, waiting for the one before to clear the outlet
@@ -526,8 +530,9 @@ export function createField(RAPIER, M, opts = {}) {
         T.standing = false;
         T.body.lockRotations(false, true);
       }
-      // gone over: it bursts into its coins, already paid for
-      if (t.y < D.y && t.z > D.z0 - 1) {
+      // gone over - or tipping with its middle past the edge, so it cannot
+      // wedge across the gap in front: it bursts into its coins, already paid for
+      if ((t.y < D.y || (!T.standing && t.z > D.z0 + 0.4)) && t.z > D.z0 - 1) {
         f.won += T.n;
         f.towersWon++;
         const q = T.body.rotation();
@@ -724,23 +729,58 @@ export function createField(RAPIER, M, opts = {}) {
       return c;
     },
 
-    /** Put a tower of n coins on the centre pusher's top - x, z in cm, or by
-     *  default in the middle, a little in from the back. */
+    /** Put a tower of n coins on the centre pusher's top, at x (cm; by
+     *  default the middle) and z (cm, in the world; by default just in front
+     *  of the drop box's glass - the glass comes down to 3 cm over the
+     *  pusher, so a tower behind it would be pinned there). It is set down
+     *  on top of whatever coins are under it, so nothing starts inside it. */
     tower(n, x, z, onWake) {
       const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));
       const h = n * STACK;
+      const glass = ch?.parts.find(b => b.kind === 'glass');
+      x ??= (centre.x0 + centre.x1) / 2;
+      z ??= (glass ? glass.c[2] + glass.h[2] : centre.back + 3 + centre.z) + CFG.coinR + 0.4;
+      // set down right on the coins under it - dropped from any height, its
+      // weight presses them into the deck
+      let floor = z < centre.front + centre.z ? centre.top : D.y;   // on the pusher's top, or out on the deck
+      for (const c of active) {
+        const t = c.body.translation();
+        if (Math.hypot(t.x - x, t.z - z) > CFG.coinR * 2 + 0.3) continue;
+        const q = c.body.rotation();                                // how high the coin reaches, however it lies
+        const reach = Math.abs(2 * (q.x * q.y + q.w * q.z)) * CFG.coinR + Math.abs(1 - 2 * (q.x * q.x + q.z * q.z)) * CFG.coinT / 2 +
+                      Math.abs(2 * (q.y * q.z - q.w * q.x)) * CFG.coinR;
+        floor = Math.max(floor, t.y + reach);
+      }
       const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(x ?? (centre.x0 + centre.x1) / 2, centre.top + h / 2 + 0.05, (z ?? centre.back + 3) + centre.z)
+        .setTranslation(x, floor + h / 2 + 0.02, z)
         .setLinearDamping(CFG.linDamp).setAngularDamping(CFG.angDamp).setCanSleep(false));
       body.lockRotations(true, true);
       const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(h / 2, CFG.coinR)
         .setFriction(CFG.coinFriction).setRestitution(CFG.restitution)
-        .setDensity(coins[0].collider.mass() / (Math.PI * CFG.coinR * CFG.coinR * STACK)), body);
+        .setDensity(coins[0].collider.mass() * TOWER_WEIGHT / (Math.PI * CFG.coinR * CFG.coinR * STACK)), body);
       body.enableCcd(true);
-      const t = { body, collider, n, h, standing: true, safe: null };
+      const t = { id: ++towerIds, body, collider, n, h, standing: true, safe: null };
       towers.push(t);
       if (onWake) onWake(t);
       return t;
+    },
+
+    /** The star tower army: towers of n coins in a block, cols across the
+     *  centre deck and rows front to back, evenly spaced, the middle row at z
+     *  (cm; by default the middle of the deck). Pushed, they lose the neat
+     *  block - but each stays standing until it reaches the edge. */
+    army({ cols = 10, rows = 3, n = 12, z } = {}) {
+      const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));
+      const lo = centre.x0 + CFG.coinR + 0.6, hi = centre.x1 - CFG.coinR - 0.6;
+      const pitch = cols > 1 ? (hi - lo) / (cols - 1) : 0;
+      z ??= D.z0 - 17;
+      const out = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          out.push(f.tower(n, cols > 1 ? lo + pitch * c : (lo + hi) / 2, z + (r - (rows - 1) / 2) * (pitch || CFG.coinR * 3)));
+        }
+      }
+      return out;
     },
 
     /** Where the guards are, for drawing them. */
@@ -992,7 +1032,7 @@ export function createField(RAPIER, M, opts = {}) {
         if (t.y > -2) c.last = t;
 
         // Anti-jam. A coin that finds somewhere to rest inside the box gets
-        // a flick, the way a real machine shakes itself loose.
+        // a flick, the way an arcade cabinet shakes itself loose.
         if (inChute(t)) {
           if (c.planar) { keepInSlot(c, t); if (board) unstick(c, t); }
           if (board && c.wheel === null) {
@@ -1053,7 +1093,7 @@ export function createField(RAPIER, M, opts = {}) {
           const onEdge = up < Math.cos(1.2);                                             // within ~20 degrees of upright
           if ((up > Math.cos(ROUND_UNTIL_TILT) && v2 < 100) || (f.elapsed - c.outAt > ROUND_AT_MOST && !onEdge)) square(c);
           // Still up on its rim a moment after landing - usually propped
-          // against the box's back panel: a real machine's shake would have
+          // against the box's back panel: a cabinet's shake would have
           // toppled it. Push its top edge forward, away from the panel, and a
           // little to one side, so it tips and rolls off as a real coin does.
           // (A spin turns it about its middle, and half the time drove it back
@@ -1158,10 +1198,11 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     xf[o + 3] = q.x; xf[o + 4] = q.y; xf[o + 5] = q.z; xf[o + 6] = q.w;
     frozen[i] = c.frozen ? 1 : 0;
   }
-  const towers = new Float32Array(f.towers.length * 8);
+  // towers: id, position and turn, coins in it
+  const towers = new Float32Array(f.towers.length * 9);
   f.towers.forEach((T, i) => {
     const t = T.body.translation(), q = T.body.rotation();
-    towers.set([t.x, t.y, t.z, q.x, q.y, q.z, q.w, T.n], i * 8);
+    towers.set([T.id, t.x, t.y, t.z, q.x, q.y, q.z, q.w, T.n], i * 9);
   });
   // balls: slot, then position and turn
   const live = f.balls.filter(b => b.live);

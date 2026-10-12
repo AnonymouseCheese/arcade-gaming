@@ -220,6 +220,8 @@ export function createAudio() {
 
     /** The wheel spin: a step of the light round the ring. */
     spinTick() { beep(1320, 0.035, 0.10); },
+    /** A bar of star power lighting up: a chime, higher for each bar. */
+    starBar(k = 1) { beep(660 * 2 ** (k / 12 * 2), 0.09, 0.12, 'triangle'); },
     /** It stops on a prize. */
     spinLand() { beep(880, 0.12, 0.16, 'triangle'); beep(1320, 0.18, 0.16, 'triangle', 0.09); },
     /** The black hole opening: a long falling roar. */

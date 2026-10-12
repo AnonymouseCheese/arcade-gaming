@@ -7,17 +7,17 @@
  *  eating into it - and the page stays smooth even when the pile is busy.
  *
  *  The page sends: { type: 'init', layout, pile, opts }, then 'insert',
- *  'tower', 'pause' / 'resume'.
+ *  'supply', 'ball', 'superpush', 'tower', 'army', 'pause' / 'resume'.
  *  This sends back, after every physics step it runs:
  *    { type: 'state', t, n, slots, xf, frozen, pushers, guards, stats, paid }
  *  where xf holds x, y, z, qx, qy, qz, qw for each live coin, in the order
  *  of slots. The arrays are transferred, not copied.
  * ------------------------------------------------------------------ */
 
-import { loadRapier } from './engine.js?v=31';
-import { CFG } from './config.js?v=31';
-import { machineFromLayout } from './machine.js?v=31';
-import { createField, snapshot } from './field-physics.js?v=31';
+import { loadRapier } from './engine.js?v=32';
+import { CFG } from './config.js?v=32';
+import { machineFromLayout } from './machine.js?v=32';
+import { createField, snapshot } from './field-physics.js?v=32';
 
 let RAPIER = null, field = null, M = null, running = true, paid = 0, stepMs = 0, timer = 0;
 let clockStart = 0, simAtStart = 0;
@@ -46,6 +46,8 @@ self.onmessage = async e => {
     if (field) field.superPush(m.times ?? 1);
   } else if (m.type === 'tower') {
     if (field) field.tower(m.n ?? 15);
+  } else if (m.type === 'army') {
+    if (field) field.army(m.army);
   } else if (m.type === 'pause') {
     running = false;
   } else if (m.type === 'resume') {

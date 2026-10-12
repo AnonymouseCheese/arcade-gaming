@@ -1,4 +1,4 @@
-import { CFG } from './config.js?v=31';   // keep the ?v in step with app.js
+import { CFG } from './config.js?v=32';   // keep the ?v in step with app.js
 
 /* ------------------------------------------------------------------ *
  *  The machine, as physics only. No renderer, no DOM - so this file
@@ -48,7 +48,7 @@ export function cabinetBoxes() {
 
 /**
  * The two slabs of the pusher, positioned relative to the pusher body.
- * One rigid body carries both - the real machine's L-shaped plate, where
+ * One rigid body carries both - an L-shaped plate, where
  * a single stroke sweeps each deck at once.
  */
 export function pusherSlabs() {

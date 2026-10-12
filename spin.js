@@ -10,27 +10,36 @@
  *  from the two coin supplies, balls from the ball outlets. Super Push pulls
  *  every pusher right back into its wall - the coins riding on it are
  *  scraped off onto the field - then pushes slowly out to its full reach,
- *  shoving them and the pile on toward the edge.
+ *  shoving them and the pile on toward the edge. Star prizes fill the star
+ *  bar (10 to fill it); full, it sends out the star tower army.
  * ------------------------------------------------------------------ */
+
+/** Bars to fill before the star towers come out. */
+export const STAR_FULL = 10;
 
 // clockwise from the top
 export const RING = [
   { kind: 'coins',  n: 5,  label: '5',    sub: 'COINS',      color: '#9fb4d8', weight: 18 },
+  { kind: 'star',   n: 1,  label: '+1',   sub: 'STAR',       color: '#ffe866', weight: 10 },
   { kind: 'coins',  n: 10, label: '10',   sub: 'COINS',      color: '#5fd0ff', weight: 18 },
   { kind: 'balls',  n: 2,  label: '2',    sub: 'BALLS',      color: '#4d8dff', weight: 14 },
-  { kind: 'coins',  n: 20, label: '20',   sub: 'COINS',      color: '#ffd23d', weight: 12 },
+  { kind: 'coins',  n: 20, label: '20',   sub: 'COINS',      color: '#ffb23d', weight: 12 },
   { kind: 'hole',          label: '',     sub: 'BLACK HOLE', color: '#ff6a2a', weight: 12 },
   { kind: 'double',        label: '×2',   sub: 'NEXT SPIN',  color: '#c44bff', weight: 8 },
+  { kind: 'star',   n: 3,  label: '+3',   sub: 'STAR',       color: '#ffe866', weight: 4 },
   { kind: 'push',   times: 1, label: 'PUSH', sub: 'SUPER',   color: '#3dff7a', weight: 10 },
   { kind: 'coins',  n: 50, label: '50',   sub: 'COINS',      color: '#ff3b52', weight: 4 },
 ];
 
 // what the Black Hole can give
 export const HOLE = [
-  { kind: 'coins', n: 60,  label: '60',   sub: 'COIN SHOWER',     color: '#ffd23d', weight: 30 },
-  { kind: 'balls', n: 6,   label: '6',    sub: 'BALLS',           color: '#4d8dff', weight: 25 },
-  { kind: 'push',  times: 2, label: 'PUSH ×2', sub: 'DOUBLE SUPER PUSH', color: '#3dff7a', weight: 25 },
-  { kind: 'coins', n: 100, label: '100',  sub: 'COINS',           color: '#ff3b52', weight: 20 },
+  { kind: 'coins', n: 60,  label: '60',   sub: 'COIN SHOWER',     color: '#ffd23d', weight: 24 },
+  { kind: 'balls', n: 6,   label: '6',    sub: 'BALLS',           color: '#4d8dff', weight: 20 },
+  { kind: 'push',  times: 2, label: 'PUSH ×2', sub: 'DOUBLE SUPER PUSH', color: '#3dff7a', weight: 20 },
+  { kind: 'coins', n: 100, label: '100',  sub: 'COINS',           color: '#ff3b52', weight: 14 },
+  { kind: 'star',  n: 1,   label: '+1',   sub: 'STAR POWER',      color: '#ffe866', weight: 10 },
+  { kind: 'star',  n: 3,   label: '+3',   sub: 'STAR POWER',      color: '#ffe866', weight: 8 },
+  { kind: 'star',  n: STAR_FULL, full: true, label: 'FULL', sub: 'STAR POWER', color: '#ffe866', weight: 4 },
 ];
 
 /** An index into list, by weight. */
@@ -55,5 +64,6 @@ export function describe(prize, mult = 1) {
   if (prize.kind === 'balls') return `${prize.n * mult} big balls`;
   if (prize.kind === 'push') return prize.times * mult > 1 ? `Super Push ×${prize.times * mult}` : 'Super Push';
   if (prize.kind === 'double') return 'Next spin ×2';
+  if (prize.kind === 'star') return prize.full ? 'Star power full' : `+${prize.n * mult} star power`;
   return '';
 }

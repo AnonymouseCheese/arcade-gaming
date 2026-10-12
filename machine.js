@@ -397,7 +397,7 @@ export function dropBox(pushers, statics) {
   const midY = (topY + exitY) / 2, halfH = (topY - exitY) / 2;
   const glass = { kind: 'glass', c: [xc, midY, back + gap + 0.25], h: [(x1 - x0) / 2, halfH, 0.25], mu: 0.08 };
   // The box's back panel comes down INTO the pusher - the pusher slides
-  // through it out of sight, as into a slot in a real machine's wall (the
+  // through it out of sight, as into a slot in a cabinet wall (the
   // physics never lets a moving pusher and a fixed part touch) - so it is the
   // wall that scrapes the pusher's top, with no gap at all. A gap even thinner
   // than a coin was a trap: pulling back, the pusher dragged a flat coin into

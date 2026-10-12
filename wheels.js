@@ -9,12 +9,24 @@
  *  A coin through a wheel also lights it. With all three lit, there is a
  *  bigger prize, and the lights go out again.
  *
- *  For now the special prize is balls (one out of every ball outlet), coins
- *  are a shower from the coin supplies, and all three lit is a bigger
- *  shower - a placeholder.
+ *  The yellow wheel's special prize is a bar of star power; the red and
+ *  green wheels' is balls (one out of every ball outlet), for now. Coins
+ *  are a shower from the coin supplies.
  * ------------------------------------------------------------------ */
 
 export const SLICES = ['special', null, 'coins', null, 'coins', null];
+/** Each wheel's special prize: red, yellow, green. */
+export const SPECIAL = ['ball', 'star', 'ball'];
+
+/** A five-pointed star's outline, centred on x, y, its points r out. */
+export function starPath(ctx, x, y, r, inner = 0.45) {
+  ctx.beginPath();
+  for (let k = 0; k < 10; k++) {
+    const a = -Math.PI / 2 + Math.PI * k / 5, rr = k % 2 ? r * inner : r;
+    k ? ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+}
 
 /** The wheels' state. onPrize(wheel, kind) when a light stops on a prize;
  *  onAllLit() when the third wheel lights up. */
@@ -41,11 +53,12 @@ export function createWheels(onPrize, onAllLit) {
 
 /**
  * Paint a wheel's face onto a square canvas: six slices round a hub, the lit
- * one bright, prizes marked (a ball for the special, a stack of coins for
- * coins) and the empty slices with arrows pointing the way the light goes.
- * glow 0..1 brightens the lit slice further while a prize is being won.
+ * one bright, prizes marked (a ball or a star for the special, a stack of
+ * coins for coins) and the empty slices with arrows pointing the way the
+ * light goes. glow 0..1 brightens the lit slice further while a prize is
+ * being won.
  */
-export function paintWheel(ctx, size, hex, lit, glow = 0, lampOn = false) {
+export function paintWheel(ctx, size, hex, lit, glow = 0, lampOn = false, special = 'ball') {
   const c = size / 2, r = size / 2 - 4, n = SLICES.length;
   const rgb = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
   const shade = k => `rgb(${rgb.map(v => Math.round(v * k)).join(',')})`;
@@ -67,7 +80,13 @@ export function paintWheel(ctx, size, hex, lit, glow = 0, lampOn = false) {
     const ix = c + Math.cos(mid) * r * 0.64, iy = c + Math.sin(mid) * r * 0.64, u = size / 15;
     ctx.save();
     ctx.translate(ix, iy);
-    if (SLICES[s] === 'special') {
+    if (SLICES[s] === 'special' && special === 'star') {
+      ctx.save(); ctx.rotate(mid + Math.PI / 2);
+      starPath(ctx, 0, 0, u * 1.5);
+      ctx.fillStyle = '#fff4a8'; ctx.fill();
+      ctx.strokeStyle = '#a8530a'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.restore();
+    } else if (SLICES[s] === 'special') {
       const g = ctx.createRadialGradient(-u * 0.4, -u * 0.4, u * 0.2, 0, 0, u * 1.25);
       g.addColorStop(0, '#bfe0ff'); g.addColorStop(1, '#1f5fe0');
       ctx.fillStyle = g;
