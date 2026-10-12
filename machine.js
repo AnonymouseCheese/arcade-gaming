@@ -495,7 +495,7 @@ function dropBoard(x0, x1, xc, exitY, topY, back, gap, G) {
   // spread coins most evenly across the ways out.
   const pin = 0.3, half = W / 2;
   const pins = [];
-  for (const [across, down] of [[0.0, 11.32], [0.173, 10.01], [0.567, 3.04], [0.718, 10.41], [0.795, 13.66], [0.693, 5.36], [0.28, 14.68], [0.447, 14.17]]) {     // owner: the three wheels about even - three pairs added to the board as it was (searched), red/yellow/green ~19/13/18%; the centre pin and the pair beside it decide yellow's share
+  for (const [across, down] of [[0.0, 10.94], [0.189, 10.01], [0.567, 3.04], [0.718, 10.41], [0.795, 13.66], [0.693, 5.36], [0.28, 14.68], [0.447, 14.17], [0.372, 18.7], [0.696, 18.75], [0.127, 19.89], [0.846, 22.24]]) {     // owner: a taller board, harder to hit untimed, timing the tap pays - four low pairs added (searched with test/timing.mjs): wheels ~13/11/12% untimed, red/green ~42% tapped at the right moment
     for (const k of across ? [-1, 1] : [0]) pins.push({ x: xc + k * half * across, y: topY - down, r: pin });
   }
   return { wheels, pins, zA, zB };      // plain data: it is sent to the drawing thread as it is

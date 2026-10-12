@@ -62,15 +62,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=29';
-import { CFG } from './config.js?v=29';
-import { machineFromLayout } from './machine.js?v=29';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=29';
-import { createAudio } from './audio.js?v=29';
-import { createWheels, paintWheel } from './wheels.js?v=29';
-import { createSteady } from './steady.js?v=29';
-import { createScreen } from './screen.js?v=29';
-import { spinOnce, describe } from './spin.js?v=29';
+import { loadRapier, simd } from './engine.js?v=30';
+import { CFG } from './config.js?v=30';
+import { machineFromLayout } from './machine.js?v=30';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=30';
+import { createAudio } from './audio.js?v=30';
+import { createWheels, paintWheel } from './wheels.js?v=30';
+import { createSteady } from './steady.js?v=30';
+import { createScreen } from './screen.js?v=30';
+import { spinOnce, describe } from './spin.js?v=30';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -510,6 +510,26 @@ if (M.chute) {
   scene.add(hole);
 }
 
+// The payout chute covered, as on a real cabinet: a plate over the strip
+// where coins and balls go over the front edge, just under the deck, running
+// out over the tray past the glass, with a front panel down to the base.
+// Coins going over the edge drop out of sight under it. Drawn only.
+{
+  const D = M.zones.drop, B = M.bounds, front = D.z1 + 3.2, y = D.y - 0.12, x0 = B.lo[0], x1 = B.hi[0];
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, front - D.z0 - 0.05), [cabinet, cabinet, steelSide, cabinet, cabinet, cabinet]);
+  plate.position.set((x0 + x1) / 2, y - 0.125, (D.z0 + 0.05 + front) / 2);
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y + 8.05, 0.3), cabinet);
+  panel.position.set((x0 + x1) / 2, (y - 8.05) / 2, front - 0.15);
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.3, 0.3), LED);
+  lip.position.set((x0 + x1) / 2, y, front);
+  scene.add(plate, panel, lip);
+  for (const x of [x0 + 0.15, x1 - 0.15]) {               // its ends, behind the clear side walls
+    const end = new THREE.Mesh(new THREE.BoxGeometry(0.3, y + 8.05, front - D.z0 + 6), cabinet);
+    end.position.set(x, (y - 8.05) / 2, (D.z0 - 6 + front) / 2);
+    scene.add(end);
+  }
+}
+
 // a cabinet underneath, with strips of light
 {
   const B = M.bounds, w = B.hi[0] - B.lo[0] + 4.8, d = B.hi[2] - B.lo[2] + 6, h = 17;
@@ -665,7 +685,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=29', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=30', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -723,7 +743,7 @@ function fit() {
   if (view === 'angle') { yaw = 0.6; pitch = 0.45; } else if (!q.has('yaw')) { yaw = 0; pitch = +(q.get('pitch') || 0.62); }
   const B = M.bounds, lo = new THREE.Vector3(...B.lo), hi = new THREE.Vector3(...B.hi);
   target.copy(lo).add(hi).multiplyScalar(0.5);
-  target.y = lo.y + (hi.y - lo.y) * 0.27;          // aimed high enough to show the wheel spin's screen over the machine
+  target.y = lo.y + (hi.y - lo.y) * 0.32;          // aimed high enough to show the wheel spin's screen over the machine
   target.z += 0.1 * (hi.z - lo.z);
   const r = hi.distanceTo(lo) / 2;
   const half = camera.fov * DEG / 2, hz = Math.atan(Math.tan(half) * camera.aspect);
