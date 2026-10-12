@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=34';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=34';
+import { CFG } from './config.js?v=35';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=35';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -33,6 +33,10 @@ const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s b
 // stacks rise out of the floor (s, then s to settle), and it pushes slowly out
 // (cm/s) - slowly enough that no stack falls on that first push.
 const STAR_BACK = 4, STAR_DROP = 0.8, STAR_SWEEP = 6, STAR_RISE = 2, STAR_SETTLE = 0.6, STAR_OUT = 1.5;
+// A pusher scraped bare (Super Push, star towers) is given coins again the
+// moment it starts back out of its wall: the centre one through the coin
+// dropper at the top, an upper one from the coin supply over it. The machine's.
+const REFILL_CENTRE = 30, REFILL_SIDE = 20;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -559,6 +563,14 @@ export function createField(RAPIER, M, opts = {}) {
     for (const b of solidBoxes) if (x > b[0] && x < b[1] && z > b[4] && z < b[5] && b[3] < centre.top - 1) y = Math.max(y, b[3] + SKIN);
     return y;
   }
+  /** Coins for a pusher scraped bare, as it starts back out of its wall. */
+  function refill(p) {
+    if (p === centre) { for (let k = 0; k < REFILL_CENTRE; k++) f.insert(); return; }
+    const q = supplies.find(q => q.o.mouth[0] > p.x0 && q.o.mouth[0] < p.x1);
+    if (!q) return;
+    if (!q.left) q.next = f.elapsed;
+    q.left += REFILL_SIDE;
+  }
   /** The centre pusher's part in the star towers (see army()). */
   function stepStar(p, S, dt) {
     if (S.stage === 'back' || S.stage === 'back2') {
@@ -583,7 +595,7 @@ export function createField(RAPIER, M, opts = {}) {
       p.z = Math.min(p.stroke, p.z + STAR_SWEEP * dt);
       if (p.z === p.stroke) S.stage = 'back2';
     } else if (S.stage === 'rise') {                         // the stacks come up
-      if ((S.t += dt) >= STAR_RISE + STAR_SETTLE) S.stage = 'out';
+      if ((S.t += dt) >= STAR_RISE + STAR_SETTLE) { S.stage = 'out'; refill(p); }
     } else {                                                 // slowly out, shoving them into the field
       p.z = Math.min(p.stroke, p.z + STAR_OUT * dt);
       if (p.z === p.stroke) {
@@ -937,7 +949,7 @@ export function createField(RAPIER, M, opts = {}) {
           p.z = Math.max(p.home, p.z - SUPER_BACK * dt);
           if (p.z === p.home) { S.stage = 'wait'; S.t = 0; }
         } else if (S.stage === 'wait') {                       // the coins drop off
-          if ((S.t += dt) >= SUPER_WAIT) S.stage = 'out';
+          if ((S.t += dt) >= SUPER_WAIT) { S.stage = 'out'; refill(p); }
         } else {                                               // slowly out to its full reach
           p.z = Math.min(p.stroke, p.z + SUPER_OUT * dt);
           if (p.z === p.stroke) {
