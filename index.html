@@ -11,7 +11,11 @@
   html, body { touch-action: none; }
   html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink);
     font: 14px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif;
-    background: radial-gradient(130% 100% at 50% 0%, #5a4fd0 0%, #33298a 40%, #1a1248 100%);
+    background: radial-gradient(circle at 12% 18%, rgba(70,130,255,.22) 0, transparent 16%),
+      radial-gradient(circle at 88% 12%, rgba(255,70,170,.16) 0, transparent 15%),
+      radial-gradient(circle at 78% 88%, rgba(255,190,70,.10) 0, transparent 18%),
+      radial-gradient(circle at 20% 80%, rgba(40,220,255,.10) 0, transparent 14%),
+      radial-gradient(120% 100% at 50% 0%, #1a2342 0%, #0b0f1e 55%, #05060c 100%);
     -webkit-user-select: none; user-select: none; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #hud { position: fixed; top: 12px; left: 12px; right: 12px; z-index: 3; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
@@ -58,15 +62,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=28';
-import { CFG } from './config.js?v=28';
-import { machineFromLayout } from './machine.js?v=28';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=28';
-import { createAudio } from './audio.js?v=28';
-import { createWheels, paintWheel } from './wheels.js?v=28';
-import { createSteady } from './steady.js?v=28';
-import { createScreen } from './screen.js?v=28';
-import { spinOnce, describe } from './spin.js?v=28';
+import { loadRapier, simd } from './engine.js?v=29';
+import { CFG } from './config.js?v=29';
+import { machineFromLayout } from './machine.js?v=29';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=29';
+import { createAudio } from './audio.js?v=29';
+import { createWheels, paintWheel } from './wheels.js?v=29';
+import { createSteady } from './steady.js?v=29';
+import { createScreen } from './screen.js?v=29';
+import { spinOnce, describe } from './spin.js?v=29';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -119,43 +123,70 @@ const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.95;
+renderer.toneMappingExposure = 1.08;
 const scene = new THREE.Scene();
 
 /** A bright room for the metal to reflect, like steel under arcade lights. */
 function arcadeRoom() {
   const room = new THREE.Scene();
   room.add(new THREE.Mesh(new THREE.BoxGeometry(100, 50, 100),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6a5cc8).multiplyScalar(1.2), side: THREE.BackSide })));
+    new THREE.MeshBasicMaterial({ color: 0x0c1020, side: THREE.BackSide })));
   const panel = (w, h, hex, power, pos, rot) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(power), side: THREE.DoubleSide }));
     m.position.set(...pos); m.rotation.set(...rot); room.add(m);
   };
-  panel(80, 60, 0xffffff, 4, [0, 24.5, 0], [Math.PI / 2, 0, 0]);
-  panel(60, 20, 0xff4da8, 2.6, [-49.5, 10, 0], [0, Math.PI / 2, 0]);
-  panel(60, 20, 0x2ad4ff, 2.6, [49.5, 10, 0], [0, -Math.PI / 2, 0]);
-  panel(50, 14, 0xffc63d, 1.8, [0, 12, -49.5], [0, 0, 0]);
-  panel(90, 34, 0xffffff, 2.6, [0, 12, 49.5], [0, Math.PI, 0]);
+  panel(70, 40, 0xf2f6ff, 4.5, [0, 24.5, 0], [Math.PI / 2, 0, 0]);          // the light overhead
+  for (const y of [4, 14]) {                                                  // LED strips on the walls round about
+    panel(90, 1.2, 0x2a8cff, 5, [-49.5, y, 0], [0, Math.PI / 2, 0]);
+    panel(90, 1.2, 0x2ad4ff, 5, [49.5, y, 0], [0, -Math.PI / 2, 0]);
+  }
+  panel(70, 1.5, 0xff3ca0, 4, [0, 16, -49.5], [0, 0, 0]);
+  panel(80, 18, 0xdfe8ff, 2.6, [0, 10, 49.5], [0, Math.PI, 0]);             // the arcade behind the player
+  panel(30, 30, 0xffffff, 2.2, [-40, 20, 30], [0, Math.PI * 0.75, 0]);       // and lights high up either side of it
+  panel(30, 30, 0xffffff, 2.2, [40, 20, 30], [0, -Math.PI * 0.75, 0]);
   const pm = new THREE.PMREMGenerator(renderer);
   const tex = pm.fromScene(room, 0.025).texture;
   pm.dispose();
   return tex;
 }
 scene.environment = arcadeRoom();
-scene.add(new THREE.HemisphereLight(0xe4ecff, 0x3a2a78, 0.9));
+scene.add(new THREE.HemisphereLight(0xe2eaff, 0x141826, 0.8));
 const key1 = new THREE.DirectionalLight(0xffffff, 1.6); key1.position.set(30, 120, 160); scene.add(key1);
 
 const Mat = o => new THREE.MeshStandardMaterial(o);
 const glow = hex => Mat({ color: hex, emissive: hex, emissiveIntensity: 1.4, roughness: 0.4 });
-const steel = Mat({ color: 0xc8cdd8, metalness: 0.85, roughness: 0.3 });
-const steelSide = Mat({ color: 0xb4bccb, metalness: 0.6, roughness: 0.34 });
-const chrome = Mat({ color: 0xeef2f8, metalness: 0.9, roughness: 0.2 });
-const cabinet = Mat({ color: 0x2f6fe8, metalness: 0.1, roughness: 0.3, emissive: 0x0d2f8a, emissiveIntensity: 0.55 });
+// Brushed stainless steel: fine streaks along one way, as on a real playfield.
+function brushed(light = 196, spread = 26) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = `rgb(${light},${light + 4},${light + 10})`; g.fillRect(0, 0, 256, 256);
+  for (let k = 0; k < 900; k++) {
+    const v = light + (Math.random() - 0.5) * spread, y = Math.random() * 256;
+    g.fillStyle = `rgba(${v},${v + 4},${v + 10},0.55)`;
+    g.fillRect(Math.random() * 256 - 60, y, 40 + Math.random() * 160, 0.6 + Math.random());
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+const steel = Mat({ color: 0xffffff, map: brushed(222), metalness: 0.9, roughness: 0.3, envMapIntensity: 1.6 });
+const steelSide = Mat({ color: 0xffffff, map: brushed(200), metalness: 0.85, roughness: 0.34, envMapIntensity: 1.45 });
+const chrome = Mat({ color: 0xeef2f8, metalness: 0.95, roughness: 0.16 });
+// the ramps face the light overhead: satin, or they flare white
+const satin = Mat({ color: 0xffffff, map: brushed(190, 30), metalness: 0.8, roughness: 0.5, envMapIntensity: 1.1 });
+const cabinet = Mat({ color: 0x1b2030, metalness: 0.55, roughness: 0.45 });            // graphite: the cabinet's body
+// clear acrylic, as the real machine's side walls
+const acrylic = new THREE.MeshPhysicalMaterial({ color: 0xcfe9ff, metalness: 0, roughness: 0.06, transparent: true, opacity: 0.18,
+  envMapIntensity: 1.5, depthWrite: false, side: THREE.DoubleSide });
+// the holographic foil on the pillars either side of the drop box: rainbow as you move
+const holo = new THREE.MeshPhysicalMaterial({ color: 0xf4f6fb, metalness: 0.5, roughness: 0.22, iridescence: 1, iridescenceIOR: 1.7,
+  iridescenceThicknessRange: [300, 1100], envMapIntensity: 2.2, emissive: 0x1a2440, emissiveIntensity: 0.4 });
 const glassMat = Mat({ color: 0xdff4ff, metalness: 0, roughness: 0.02, transparent: true, opacity: 0.06,
   envMapIntensity: 1.6, depthWrite: false, side: THREE.DoubleSide });
 const LOOK = {
-  deck: [steel, steelSide], ramp: [steel, steelSide], wall: [steel, cabinet],
+  deck: [steel, steelSide], ramp: [satin, steelSide], wall: [steel, cabinet], floor: [steel, steelSide],
+  acrylic: [chrome, acrylic], holo: [holo, holo],
   catcher: [glow(0xc44bff), glow(0xc44bff)], lip: [glow(0xff3b52), glow(0xff3b52)],
   screen: [glow(0x14b8c4), glow(0x14b8c4)], coinout: [glow(0xff9a3d), glow(0xff9a3d)],
   ballout: [glow(0xff4da8), glow(0xff4da8)], glass: [glassMat, glassMat],
@@ -193,13 +224,38 @@ function prismMesh(points, kind) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  // texture coordinates from where each corner is: the brushed steel runs on across it
+  const uv = []; for (let k = 0; k < pos.length; k += 3) uv.push(pos[k] * 0.06, (pos[k + 2] + pos[k + 1]) * 0.06);
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.addGroup(0, topCount, 0);
   g.addGroup(topCount, pos.length / 3 - topCount, 1);
   g.computeVertexNormals();
   return new THREE.Mesh(g, LOOK[kind] ?? LOOK.frame);
 }
 
-for (const s of M.statics) if (s.kind !== 'clip') scene.add(boxMesh(s, s.kind));   // stop blocks are invisible
+// Which look a wall gets: the playfield's floors steel; the pillars either
+// side of the drop box holographic; the cabinet's side walls clear acrylic,
+// edged with an LED strip; the rest the cabinet's graphite.
+const LED = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x2ad4ff).multiplyScalar(1.6), toneMapped: false });
+function lookOf(s) {
+  if (s.kind !== 'wall') return s.kind;
+  if (s.playfield) return 'floor';
+  const x0 = s.c[0] - s.h[0], x1 = s.c[0] + s.h[0], thinX = s.h[0] * 2 <= 2.5, tall = s.h[1] * 2 >= 4;
+  const C = M.chute;
+  if (C && thinX && tall && (Math.abs(x1 - C.x0) < 0.01 || Math.abs(x0 - C.x1) < 0.01)) return 'holo';
+  if (thinX && (Math.abs(x0 - M.bounds.lo[0]) < 0.01 || Math.abs(x1 - M.bounds.hi[0]) < 0.01)) return 'acrylic';
+  return 'wall';
+}
+for (const s of M.statics) {
+  if (s.kind === 'clip') continue;                                   // stop blocks are invisible
+  const look = lookOf(s);
+  scene.add(boxMesh(s, look));
+  if (look === 'acrylic' && s.c[1] + s.h[1] > M.bounds.hi[1] - 8) {   // a strip of light along its top
+    const led = new THREE.Mesh(new THREE.BoxGeometry(s.h[0] * 2 + 0.1, 0.3, s.h[2] * 2), LED);
+    led.position.set(s.c[0], s.c[1] + s.h[1] + 0.15, s.c[2]);
+    scene.add(led);
+  }
+}
 for (const h of M.hulls) if (h.kind !== 'wheel') scene.add(prismMesh(h.points, h.kind));
 for (const r of M.rails) {
   const a = new THREE.Vector3(...r.a), b = new THREE.Vector3(...r.b);
@@ -458,7 +514,7 @@ if (M.chute) {
 {
   const B = M.bounds, w = B.hi[0] - B.lo[0] + 4.8, d = B.hi[2] - B.lo[2] + 6, h = 17;
   const base = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
-    Mat({ color: 0x241a6e, metalness: 0.35, roughness: 0.28, emissive: 0x120a40, emissiveIntensity: 0.5 }));
+    Mat({ color: 0x141824, metalness: 0.5, roughness: 0.4 }));
   base.position.set((B.lo[0] + B.hi[0]) / 2, -h / 2 - 8.05, (B.lo[2] + B.hi[2]) / 2 + 0.6);
   const strip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.35, d + 0.2),
     new THREE.MeshBasicMaterial({ color: new THREE.Color(0x2ad4ff).multiplyScalar(1.5), toneMapped: false }));
@@ -469,9 +525,38 @@ if (M.chute) {
 /* ---------------- coins ---------------- */
 
 const MAXC = 1700;                     // the physics' coin pool
+// A token: a raised rim, a ring, and a star struck in the middle (light from
+// the top left, so it reads as embossed); its edge milled with fine ridges.
+function coinFace() {
+  const n = 128, c = n / 2, g = (() => { const k = document.createElement('canvas'); k.width = k.height = n; return k; })();
+  const x = g.getContext('2d');
+  const base = x.createRadialGradient(c * 0.8, c * 0.75, 4, c, c, c);
+  base.addColorStop(0, '#e2e6ee'); base.addColorStop(1, '#a7afbd');
+  x.fillStyle = base; x.fillRect(0, 0, n, n);
+  const ring = (r, w, col) => { x.beginPath(); x.arc(c, c, r, 0, Math.PI * 2); x.lineWidth = w; x.strokeStyle = col; x.stroke(); };
+  ring(c - 4, 7, '#f2f4f8'); ring(c - 8.5, 2, '#7d8696');                  // the rim, and its inner edge
+  ring(c * 0.62, 2.5, '#eef1f6'); ring(c * 0.62 + 2.2, 1.5, '#8a93a3');     // a struck ring
+  const star = (dx, dy, col) => {
+    x.beginPath();
+    for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? c * 0.19 : c * 0.44; x.lineTo(c + dx + Math.cos(a) * r, c + dy + Math.sin(a) * r); }
+    x.closePath(); x.fillStyle = col; x.fill();
+  };
+  star(1.6, 1.6, '#7f8898'); star(-1, -1, '#f6f8fb'); star(0, 0, '#c6ccd7');   // shadow, highlight, face
+  const t = new THREE.CanvasTexture(g); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+function coinEdge() {
+  const g = document.createElement('canvas'); g.width = 128; g.height = 8;
+  const x = g.getContext('2d');
+  for (let k = 0; k < 128; k++) { x.fillStyle = k % 2 ? '#7c8494' : '#c9cfd9'; x.fillRect(k, 0, 1, 8); }
+  const t = new THREE.CanvasTexture(g); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const coinFaceMat = Mat({ map: coinFace(), metalness: 0.88, roughness: 0.32, envMapIntensity: 1.7 });
+const coinEdgeMat = Mat({ map: coinEdge(), metalness: 0.9, roughness: 0.38, envMapIntensity: 1.4 });
 const coinMesh = new THREE.InstancedMesh(
   new THREE.CylinderGeometry(CFG.coinR, CFG.coinR, CFG.coinT, 20),
-  Mat({ color: 0xdfe3ea, metalness: 0.92, roughness: 0.27, envMapIntensity: 2.2, emissive: 0xdfe3ea, emissiveIntensity: 0.05 }),
+  [coinEdgeMat, coinFaceMat, coinFaceMat],                                 // a cylinder's side, top, bottom
   MAXC);
 coinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 coinMesh.frustumCulled = false;
@@ -488,7 +573,8 @@ let slots = new Int16Array(0), lastStats = null, stateAt = 0, payQueue = 0;
 // the big balls, by pool slot: blue and glittery
 const MAXB = 24;
 const ballMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(BALL_RADIUS, 28, 20),
-  Mat({ color: 0x2f7dff, metalness: 0.55, roughness: 0.22, envMapIntensity: 1.8, emissive: 0x0b2f8f, emissiveIntensity: 0.45 }), MAXB);
+  new THREE.MeshPhysicalMaterial({ color: 0x1d55d8, metalness: 0.15, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04,
+    envMapIntensity: 1.6, emissive: 0x0a1d5a, emissiveIntensity: 0.3 }), MAXB);
 ballMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 ballMesh.frustumCulled = false;
 ballMesh.count = 0;
@@ -579,7 +665,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=28', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=29', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
