@@ -62,15 +62,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=30';
-import { CFG } from './config.js?v=30';
-import { machineFromLayout } from './machine.js?v=30';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=30';
-import { createAudio } from './audio.js?v=30';
-import { createWheels, paintWheel } from './wheels.js?v=30';
-import { createSteady } from './steady.js?v=30';
-import { createScreen } from './screen.js?v=30';
-import { spinOnce, describe } from './spin.js?v=30';
+import { loadRapier, simd } from './engine.js?v=31';
+import { CFG } from './config.js?v=31';
+import { machineFromLayout } from './machine.js?v=31';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=31';
+import { createAudio } from './audio.js?v=31';
+import { createWheels, paintWheel } from './wheels.js?v=31';
+import { createSteady } from './steady.js?v=31';
+import { createScreen } from './screen.js?v=31';
+import { spinOnce, describe } from './spin.js?v=31';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -190,7 +190,7 @@ const LOOK = {
   catcher: [glow(0xc44bff), glow(0xc44bff)], lip: [glow(0xff3b52), glow(0xff3b52)],
   screen: [glow(0x14b8c4), glow(0x14b8c4)], coinout: [glow(0xff9a3d), glow(0xff9a3d)],
   ballout: [glow(0xff4da8), glow(0xff4da8)], glass: [glassMat, glassMat],
-  tray: [Mat({ color: 0x1a1640, metalness: 0.6, roughness: 0.3 }), Mat({ color: 0x1a1640, metalness: 0.6, roughness: 0.3 })],
+  tray: [Mat({ color: 0x040508, metalness: 0, roughness: 0.95, envMapIntensity: 0 }), Mat({ color: 0x040508, metalness: 0, roughness: 0.95, envMapIntensity: 0 })],   // inside the dark payout chute
   chute: [Mat({ color: 0x1d2d63, metalness: 0.3, roughness: 0.4, emissive: 0x0d1a50, emissiveIntensity: 0.6 }),
           Mat({ color: 0x1d2d63, metalness: 0.3, roughness: 0.4, emissive: 0x0d1a50, emissiveIntensity: 0.6 })],
   frame: [Mat({ color: 0x4a5163, metalness: 0.7, roughness: 0.35 }), Mat({ color: 0x4a5163, metalness: 0.7, roughness: 0.35 })],
@@ -510,14 +510,17 @@ if (M.chute) {
   scene.add(hole);
 }
 
-// The payout chute covered, as on a real cabinet: a plate over the strip
-// where coins and balls go over the front edge, just under the deck, running
-// out over the tray past the glass, with a front panel down to the base.
-// Coins going over the edge drop out of sight under it. Drawn only.
+// The payout chute, as on a real cabinet: the strip between the deck's front
+// edge and the glass stays open, lined in matte black, so coins and balls
+// going over the edge drop into the dark and are gone. In front of the glass
+// a steel ledge and a front panel hide the chute and the tray below from the
+// front. (Covered over at deck height, coins seemed to fall into solid metal.)
+// Drawn only.
 {
   const D = M.zones.drop, B = M.bounds, front = D.z1 + 3.2, y = D.y - 0.12, x0 = B.lo[0], x1 = B.hi[0];
-  const plate = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, front - D.z0 - 0.05), [cabinet, cabinet, steelSide, cabinet, cabinet, cabinet]);
-  plate.position.set((x0 + x1) / 2, y - 0.125, (D.z0 + 0.05 + front) / 2);
+  const glassOut = Math.max(D.z1, ...M.statics.filter(s => s.kind === 'glass' && s.drawOnly).map(s => s.c[2] + s.h[2]));
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, front - glassOut), [cabinet, cabinet, steelSide, cabinet, cabinet, cabinet]);
+  plate.position.set((x0 + x1) / 2, y - 0.125, (glassOut + front) / 2);
   const panel = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y + 8.05, 0.3), cabinet);
   panel.position.set((x0 + x1) / 2, (y - 8.05) / 2, front - 0.15);
   const lip = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.3, 0.3), LED);
@@ -527,6 +530,17 @@ if (M.chute) {
     const end = new THREE.Mesh(new THREE.BoxGeometry(0.3, y + 8.05, front - D.z0 + 6), cabinet);
     end.position.set(x, (y - 8.05) / 2, (D.z0 - 6 + front) / 2);
     scene.add(end);
+  }
+  // the chute's black lining: its back (the deck's front face) and its two ends, down to the tray
+  const black = Mat({ color: 0x040508, metalness: 0, roughness: 0.95, envMapIntensity: 0 });
+  const deep = D.trayY - 1.5, h = D.y - 0.03 - deep;
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(D.x1 - D.x0, h, 0.06), black);
+  backWall.position.set((D.x0 + D.x1) / 2, deep + h / 2, D.z0 + 0.04);
+  scene.add(backWall);
+  for (const x of [D.x0 + 0.04, D.x1 - 0.04]) {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, D.z1 - D.z0), black);
+    side.position.set(x, deep + h / 2, (D.z0 + D.z1) / 2);
+    scene.add(side);
   }
 }
 
@@ -685,7 +699,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=30', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=31', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
