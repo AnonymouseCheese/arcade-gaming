@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=39';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=39';
+import { CFG } from './config.js?v=40';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=40';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -39,7 +39,7 @@ const SUPER_BACK = STAR_BACK, SUPER_WAIT = STAR_DROP, SUPER_OUT = STAR_OUT;
 // A pusher scraped bare (Super Push, star towers) is given coins again once it
 // is back to its usual stroke: the centre one through the coin dropper at the
 // top, an upper one from the coin supply over it. The machine's.
-const REFILL_CENTRE = 30, REFILL_SIDE = 20;
+const REFILL_CENTRE = 30, REFILL_SIDE = 40;
 // The centre refill comes through the coin dropper a coin at a time, this many
 // s apart - about two in the board at once (a tenth of a second apart, as fast
 // as the outlet goes, jammed the board; 0.4 s still bunched them up).
@@ -214,7 +214,7 @@ export function createField(RAPIER, M, opts = {}) {
       // goes, and a frozen coin would hang in the air while the pusher slid
       // away underneath it.
       riding: { x0: p.x0 - 0.5, x1: p.x1 + 0.5, y0: p.top - 0.6, y1: p.top + 5,
-                z0: p.back - p.stroke, z1: p.front + p.stroke },
+                z0: p.back - p.stroke, z1: p.front + Math.max(p.stroke, p.reach || 0) },
       // Coins in front of it may freeze while it is pulled back - they are
       // just lying there - and are thawed as its face comes up to them.
       sweep: { x0: p.x0 - 1.5, x1: p.x1 + 1.5, y0: p.bottom - 1, y1: p.top + 1 },
@@ -923,16 +923,18 @@ export function createField(RAPIER, M, opts = {}) {
       return { elapsed: Math.round(f.elapsed * 1e4) / 1e4, pushClocks: pushers.map(p => Math.round(p.clock * 1e4) / 1e4), coins: f.recordCoins() };
     },
 
-    /** Super Push, `times` over: every pusher pulls right back into its wall,
-     *  so all the coins riding on it are scraped off onto the field below,
-     *  waits a moment, then pushes slowly out to its full reach - shoving
-     *  them, and the pile in front, on toward the edge. Then it carries on
-     *  as before from there. */
+    /** Super Push, `times` over. The centre pusher pulls right back into its
+     *  wall, so all the coins riding on it are scraped off onto the field
+     *  below, waits a moment, then pushes slowly out to its full reach -
+     *  shoving them, and the pile in front, on toward the edge. Each upper
+     *  pusher instead pushes slowly out right across its static field, to the
+     *  front edge, clearing it, and comes back. Then each carries on as
+     *  before, and is given coins again (refill). */
     superPush(times = 1) {
       if (f.starComing) { pushLater += times; return; }       // after the star towers
       for (const p of pushers) {
         if (p.script) p.script.times += times;
-        else p.script = { stage: 'back', times, t: 0 };
+        else p.script = { stage: p.reach ? 'across' : 'back', times, t: 0 };
       }
     },
     /** Is a Super Push under way? */
@@ -964,6 +966,19 @@ export function createField(RAPIER, M, opts = {}) {
           // stopped where it is while the star towers come out: its clock stops too
         } else if (S.kind === 'star') {
           stepStar(p, S, dt);
+        } else if (S.stage === 'across') {                     // an upper pusher: slowly out across its field
+          p.z = Math.min(p.reach, p.z + SUPER_OUT * dt);
+          if (p.z === p.reach) S.stage = 'return';
+        } else if (S.stage === 'return') {                     // and back to the far end of its stroke
+          p.z = Math.max(p.stroke, p.z - SUPER_BACK * dt);
+          if (p.z === p.stroke) {
+            if (--S.times > 0) S.stage = 'across';
+            else {
+              p.script = null;
+              p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
+              refill(p);
+            }
+          }
         } else if (S.stage === 'back') {                       // slowly back into the wall
           p.z = Math.max(p.home, p.z - SUPER_BACK * dt);
           if (p.z === p.home) { S.stage = 'wait'; S.t = 0; }

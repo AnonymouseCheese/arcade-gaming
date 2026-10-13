@@ -64,15 +64,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=39';
-import { CFG } from './config.js?v=39';
-import { machineFromLayout } from './machine.js?v=39';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=39';
-import { createAudio } from './audio.js?v=39';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=39';
-import { createSteady } from './steady.js?v=39';
-import { createScreen } from './screen.js?v=39';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=39';
+import { loadRapier, simd } from './engine.js?v=40';
+import { CFG } from './config.js?v=40';
+import { machineFromLayout } from './machine.js?v=40';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=40';
+import { createAudio } from './audio.js?v=40';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=40';
+import { createSteady } from './steady.js?v=40';
+import { createScreen } from './screen.js?v=40';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=40';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -787,7 +787,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=39', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=40', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -908,6 +908,8 @@ document.getElementById('testBall').addEventListener('click', e => { e.stopPropa
 const testSpin = hole => { if (!screen) return; let r = spinOnce(); if (hole) while (r.hole === undefined) r = spinOnce(); screen.play(r, nextMult); nextMult = 1; };
 document.getElementById('testSpin').addEventListener('click', e => { e.stopPropagation(); testSpin(false); });
 document.getElementById('testStar').addEventListener('click', e => { e.stopPropagation(); addStar(3); });
+// ?push=1 starts a Super Push once the physics is running (for testing)
+if (q.get('push') === '1') { const go = () => (lastStats ? sim.superPush(1) : setTimeout(go, 100)); go(); }
 // ?star=N starts with N bars of star power (10 sends out the towers)
 if (q.has('star')) setTimeout(() => { addStar(+q.get('star') || 0); for (let t = 0; t < +(q.get('at') || 0); t += 0.05) screen?.update(0.05); }, 300);
 if (q.has('spin')) setTimeout(() => { testSpin(q.get('spin') === 'hole'); for (let t = 0; t < +(q.get('at') || 0); t += 0.05) screen?.update(0.05); }, 300);   // &at=s: that far into the show (for screenshots)

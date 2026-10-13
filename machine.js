@@ -279,6 +279,24 @@ export function machineFromLayout(layout, opts = {}) {
   // there climbed up onto the pile instead of pushing it on.
   for (const s of statics) if (s.kind === 'wall' && isFloor(s, cells)) s.playfield = true;
 
+  // An upper (side) pusher's Super Push goes right across the static field it
+  // stands on, to that field's front edge: reach, cm past its face. Its body
+  // runs that much further back into the wall, so no gap opens behind it on
+  // the way out. (The centre pusher's Super Push goes back into its wall.)
+  const lowest = Math.min(...pushers.map(p => p.top));
+  for (const p of pushers) {
+    p.reach = 0;
+    if (p.top === lowest) continue;
+    let edge = p.front;
+    for (const s of statics) {
+      if (!s.playfield || Math.abs(s.c[1] + s.h[1] - p.bottom) > 0.3) continue;
+      if (s.c[0] - s.h[0] < p.x1 && s.c[0] + s.h[0] > p.x0 && s.c[2] - s.h[2] <= p.front + 0.01) edge = Math.max(edge, s.c[2] + s.h[2]);
+    }
+    p.reach = Math.max(0, edge - p.front);
+    const rear = Math.min(...p.boxes.map(b => b.c[2] - b.h[2]));
+    for (const b of p.boxes) if (Math.abs(b.c[2] - b.h[2] - rear) < 1e-6) { b.c[2] -= p.reach / 2; b.h[2] += p.reach / 2; }
+  }
+
   const outlets = findOutlets(cells, (lo[0] + hi[0]) / 2);
 
   return { statics, hulls, pushers, rails, chute, outlets, zones: { drop }, bounds: { lo, hi } };
