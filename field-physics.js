@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=40';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=40';
+import { CFG } from './config.js?v=41';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=41';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -501,6 +501,12 @@ export function createField(RAPIER, M, opts = {}) {
   const TOWER_WEIGHT = 0.5;
   let towerIds = 0;
   let refillLeft = 0, refillNext = 0;      // the centre refill: coins still to come through the dropper, and when the next is due
+  // Balls won while the pushers are doing a Super Push or the star towers wait
+  // until they are back to normal: an upper pusher sweeping its field passes
+  // right under the ball outlet, shoving a heap of coins, and a ball rolling
+  // out into that was flung high in the air. Then out one lot every BALL_GAP s.
+  let ballsLater = 0, ballNext = 0;
+  const BALL_GAP = 0.7;
   const refillCoins = new Set();           // its coins still in the box
   const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));   // the centre pusher: the lowest
   const starQueue = [];                    // star tower sequences waiting their turn
@@ -765,6 +771,7 @@ export function createField(RAPIER, M, opts = {}) {
 
     /** One ball out of every ball outlet, rolling gently out of it. */
     ball(onWake) {
+      if (f.pushersBusy) { ballsLater++; return 0; }              // after the push
       let n = 0;
       for (const o of ballOutlets) {
         const b = balls.find(x => !x.live);
@@ -796,7 +803,7 @@ export function createField(RAPIER, M, opts = {}) {
      *  right behind another, a tenth of a second later). Returns false if
      *  the machine is full. */
     insert(onWake) {
-      if (!ch || f.refilling) return false;
+      if (!ch || f.refilling || f.pushersBusy) return false;   // not while the machine is busy
       if (active.length + slot.length >= coins.length) return false;
       if (!slot.length && slotClear()) lastIn = f.release(onWake);
       else slot.push({ onWake });
@@ -889,6 +896,8 @@ export function createField(RAPIER, M, opts = {}) {
       for (const c of refillCoins) if (!c.live || f.elapsed - c.machineAt > REFILL_STUCK) { c.machine = false; refillCoins.delete(c); }
       return refillLeft > 0 || refillCoins.size > 0;
     },
+    /** Is any pusher off its usual stroke - a Super Push, the star towers? */
+    get pushersBusy() { return starQueue.length > 0 || pushers.some(p => p.script); },
     /** Are star towers on the way (the pushers doing their part)? */
     get starComing() { return starQueue.length > 0 || pushers.some(p => p.script?.kind === 'star'); },
 
@@ -953,6 +962,7 @@ export function createField(RAPIER, M, opts = {}) {
     step(onMoved, onCollected) {
       f.elapsed += world.timestep;
       const tick = Math.round(f.elapsed / world.timestep);      // steps so far
+      if (ballsLater && !f.pushersBusy && f.elapsed >= ballNext) { ballsLater--; ballNext = f.elapsed + BALL_GAP; f.ball(); }
       if (starQueue.length && !pushers.some(p => p.script)) {
         const opts = starQueue.shift();
         for (const p of pushers) p.script = p === centre ? { kind: 'star', stage: 'back', t: 0, opts } : { kind: 'hold' };
@@ -1355,7 +1365,7 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing, towersComing: f.starComing, refilling: f.refilling },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing, towersComing: f.starComing, refilling: f.refilling, busy: f.pushersBusy },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];

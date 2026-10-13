@@ -64,15 +64,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=40';
-import { CFG } from './config.js?v=40';
-import { machineFromLayout } from './machine.js?v=40';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=40';
-import { createAudio } from './audio.js?v=40';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=40';
-import { createSteady } from './steady.js?v=40';
-import { createScreen } from './screen.js?v=40';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=40';
+import { loadRapier, simd } from './engine.js?v=41';
+import { CFG } from './config.js?v=41';
+import { machineFromLayout } from './machine.js?v=41';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=41';
+import { createAudio } from './audio.js?v=41';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=41';
+import { createSteady } from './steady.js?v=41';
+import { createScreen } from './screen.js?v=41';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=41';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -787,7 +787,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=40', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=41', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -892,8 +892,9 @@ document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preven
 let lastPhase = 0, lastDir = 0, simClock = 0;
 function dropCoin(byHand = false) {
   if (bank <= 0) return;
-  // the machine is refilling the centre pusher through the dropper: wait
-  if (lastStats?.refilling) { if (byHand) say('Refilling - wait a moment'); return; }
+  // the machine is busy - a Super Push, the star towers, or refilling the
+  // centre pusher through the dropper: wait
+  if (lastStats?.refilling || lastStats?.busy) { if (byHand) say(lastStats.refilling ? 'Refilling - wait a moment' : 'Pushing - wait a moment'); return; }
   sim.insert();
   bank--;
   audio.drop();
@@ -967,8 +968,8 @@ function frame(now) {
   // the lamps stay lit while a spin plays, then go out with it
   lampLook.forEach((L, i) => { const on = wheels.on[i] || !!screen?.busy || celebrate > 0; if (on !== L.on) paintLamp(L, on); });
   if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); screen.setTowersComing(!!lastStats?.towersComing);
-  const refilling = !!lastStats?.refilling;
-  if (refilling !== dropBtn.classList.contains('wait')) { dropBtn.classList.toggle('wait', refilling); dropBtn.textContent = refilling ? 'Refilling…' : 'Drop a coin'; } if (screen.update(dt)) screenTex.needsUpdate = true; }
+  const waitText = lastStats?.refilling ? 'Refilling…' : lastStats?.busy ? 'Please wait…' : 'Drop a coin';
+  if (waitText !== dropBtn.textContent) { dropBtn.classList.toggle('wait', waitText !== 'Drop a coin'); dropBtn.textContent = waitText; } if (screen.update(dt)) screenTex.needsUpdate = true; }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;
