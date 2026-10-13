@@ -29,6 +29,7 @@
     background: rgba(255, 255, 255, .1); border: 1px solid var(--line); border-radius: 12px; padding: 13px 18px; }
   button:hover { background: rgba(255, 255, 255, .18); }
   button.go { background: var(--gold); color: #2a1a00; border-color: var(--gold); font-size: 17px; padding: 15px 26px; }
+  button.go.wait { opacity: 0.45; }
   button[aria-pressed="true"] { background: var(--accent); color: #04151c; border-color: var(--accent); }
   #boot { position: fixed; inset: 0; display: grid; place-items: center; z-index: 5; color: var(--muted); }
   #toast { position: fixed; left: 50%; top: 96px; transform: translate(-50%, -10px); z-index: 4; pointer-events: none;
@@ -63,15 +64,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=37';
-import { CFG } from './config.js?v=37';
-import { machineFromLayout } from './machine.js?v=37';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=37';
-import { createAudio } from './audio.js?v=37';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=37';
-import { createSteady } from './steady.js?v=37';
-import { createScreen } from './screen.js?v=37';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=37';
+import { loadRapier, simd } from './engine.js?v=38';
+import { CFG } from './config.js?v=38';
+import { machineFromLayout } from './machine.js?v=38';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=38';
+import { createAudio } from './audio.js?v=38';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=38';
+import { createSteady } from './steady.js?v=38';
+import { createScreen } from './screen.js?v=38';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=38';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -780,7 +781,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=37', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=38', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -871,7 +872,7 @@ canvas.addEventListener('pointermove', e => {
   drag.x = e.clientX; drag.y = e.clientY;
   if (drag.moved) { yaw -= dx * 0.005; pitch = Math.max(0.1, Math.min(1.5, pitch + dy * 0.004)); }
 });
-addEventListener('pointerup', () => { if (drag && !drag.moved) dropCoin(); drag = null; });
+addEventListener('pointerup', () => { if (drag && !drag.moved) dropCoin(true); drag = null; });
 canvas.addEventListener('wheel', e => { e.preventDefault(); dist = Math.max(30, Math.min(800, dist * (e.deltaY > 0 ? 1.08 : 1 / 1.08))); }, { passive: false });
 
 /* ---------------- playing ---------------- */
@@ -883,13 +884,16 @@ addEventListener('pointerdown', () => audio.unlock(), { once: false });
 for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(type, e => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 let lastPhase = 0, lastDir = 0, simClock = 0;
-function dropCoin() {
+function dropCoin(byHand = false) {
   if (bank <= 0) return;
+  // the machine is refilling the centre pusher through the dropper: wait
+  if (lastStats?.refilling) { if (byHand) say('Refilling - wait a moment'); return; }
   sim.insert();
   bank--;
   audio.drop();
 }
-document.getElementById('drop').addEventListener('click', e => { e.stopPropagation(); dropCoin(); });
+const dropBtn = document.getElementById('drop');
+dropBtn.addEventListener('click', e => { e.stopPropagation(); dropCoin(true); });
 // Test buttons for the outlets. The coin supply's coins are the machine's,
 // so nothing comes out of your coins.
 document.getElementById('testCoins').addEventListener('click', e => { e.stopPropagation(); sim.supply(10); });
@@ -909,7 +913,7 @@ const autoBtn = document.getElementById('auto');
 autoBtn.setAttribute('aria-pressed', String(auto));
 autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); });
 document.getElementById('view').addEventListener('click', () => { view = VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length]; fit(); });
-addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dropCoin(); } });
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); dropCoin(true); } });
 
 
 /* ---------------- the loop ---------------- */
@@ -954,7 +958,9 @@ function frame(now) {
   if (celebrate > 0 && (celebrate -= dt) <= 0) { celebrate = 0; wheelLook.forEach((_, i) => repaint(i)); }
   // the lamps stay lit while a spin plays, then go out with it
   lampLook.forEach((L, i) => { const on = wheels.on[i] || !!screen?.busy || celebrate > 0; if (on !== L.on) paintLamp(L, on); });
-  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); screen.setTowersComing(!!lastStats?.towersComing); if (screen.update(dt)) screenTex.needsUpdate = true; }
+  if (screen) { wheels.hold = screen.busy; screen.setLamps(wheels.on); screen.setPushing(!!lastStats?.pushing); screen.setTowersComing(!!lastStats?.towersComing);
+  const refilling = !!lastStats?.refilling;
+  if (refilling !== dropBtn.classList.contains('wait')) { dropBtn.classList.toggle('wait', refilling); dropBtn.textContent = refilling ? 'Refilling…' : 'Drop a coin'; } if (screen.update(dt)) screenTex.needsUpdate = true; }
   for (const w of wheelLook) {
     w.lit = Math.max(0, w.lit - dt * 1.4);
     w.mat.emissiveIntensity = 0.45 + w.lit * 2.4;

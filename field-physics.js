@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=37';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=37';
+import { CFG } from './config.js?v=38';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=38';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -40,6 +40,13 @@ const SUPER_BACK = STAR_BACK, SUPER_WAIT = STAR_DROP, SUPER_OUT = STAR_OUT;
 // is back to its usual stroke: the centre one through the coin dropper at the
 // top, an upper one from the coin supply over it. The machine's.
 const REFILL_CENTRE = 30, REFILL_SIDE = 20;
+// The centre refill comes through the coin dropper a coin at a time, this many
+// s apart - about two in the board at once (a tenth of a second apart, as fast
+// as the outlet goes, jammed the board; 0.4 s still bunched them up).
+// Its coins are the machine's: they light no wheel, and while it is under way
+// the player cannot drop coins in. One in the box longer than REFILL_STUCK s
+// no longer holds the player up.
+const REFILL_GAP = 0.6, REFILL_STUCK = 8;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -493,6 +500,8 @@ export function createField(RAPIER, M, opts = {}) {
   // coins it stood on into the deck - six times the usual lifts back out.
   const TOWER_WEIGHT = 0.5;
   let towerIds = 0;
+  let refillLeft = 0, refillNext = 0;      // the centre refill: coins still to come through the dropper, and when the next is due
+  const refillCoins = new Set();           // its coins still in the box
   const centre = pushers.reduce((a, p) => (p.top < a.top ? p : a));   // the centre pusher: the lowest
   const starQueue = [];                    // star tower sequences waiting their turn
   let pushLater = 0;                       // Super Pushes won while the star towers come out
@@ -568,7 +577,7 @@ export function createField(RAPIER, M, opts = {}) {
   }
   /** Coins for a pusher scraped bare, as it starts back out of its wall. */
   function refill(p) {
-    if (p === centre) { for (let k = 0; k < REFILL_CENTRE; k++) f.insert(); return; }
+    if (p === centre) { if (!refillLeft) refillNext = f.elapsed; refillLeft += REFILL_CENTRE; return; }
     const q = supplies.find(q => q.o.mouth[0] > p.x0 && q.o.mouth[0] < p.x1);
     if (!q) return;
     if (!q.left) q.next = f.elapsed;
@@ -700,6 +709,7 @@ export function createField(RAPIER, M, opts = {}) {
       c.ref = null;
       c.paidAt = 0;
       c.inChute = 0;
+      if (c.machine) { c.machine = false; refillCoins.delete(c); }
       c.safe = null;
       if (c.ccd) { c.body.enableCcd(false); c.ccd = false; }
       // A coin is reused once it has paid out, and it may have been going fast
@@ -786,7 +796,7 @@ export function createField(RAPIER, M, opts = {}) {
      *  right behind another, a tenth of a second later). Returns false if
      *  the machine is full. */
     insert(onWake) {
-      if (!ch) return false;
+      if (!ch || f.refilling) return false;
       if (active.length + slot.length >= coins.length) return false;
       if (!slot.length && slotClear()) lastIn = f.release(onWake);
       else slot.push({ onWake });
@@ -873,6 +883,11 @@ export function createField(RAPIER, M, opts = {}) {
      *  Waits for a Super Push under way to finish first. */
     army({ cols = 10, rows = 3, n = 18 } = {}) {
       starQueue.push({ cols, rows, n });
+    },
+    /** Is the centre refill under way - coins still to come, or still in the box? */
+    get refilling() {
+      for (const c of refillCoins) if (!c.live || f.elapsed - c.machineAt > REFILL_STUCK) { c.machine = false; refillCoins.delete(c); }
+      return refillLeft > 0 || refillCoins.size > 0;
     },
     /** Are star towers on the way (the pushers doing their part)? */
     get starComing() { return starQueue.length > 0 || pushers.some(p => p.script?.kind === 'star'); },
@@ -1042,6 +1057,10 @@ export function createField(RAPIER, M, opts = {}) {
 
       // the next coin dropped in, once the last is clear of the outlet
       if (slot.length && slotClear()) lastIn = f.release(slot.shift().onWake);
+      else if (refillLeft && f.elapsed >= refillNext && slotClear()) {
+        const c = f.release();
+        if (c) { c.machine = true; c.machineAt = f.elapsed; refillCoins.add(c); lastIn = c; refillLeft--; refillNext = f.elapsed + REFILL_GAP; }
+      }
 
       // thaw whatever each pusher's face is about to reach
       if (freeze) {
@@ -1141,7 +1160,7 @@ export function createField(RAPIER, M, opts = {}) {
           if (c.planar) { keepInSlot(c, t); if (board) unstick(c, t); }
           if (board && c.wheel === null) {
             const w = wheelAt(t);
-            if (w) { c.wheel = w.i; f.wheels[w.i]++; }
+            if (w) { c.wheel = w.i; if (!c.machine) f.wheels[w.i]++; }     // the machine's refill coins light no wheel
           }
           // A real box slows a coin with its pins and wheels. This one just
           // will not let it go faster than this - at that speed nobody can tell.
@@ -1177,6 +1196,7 @@ export function createField(RAPIER, M, opts = {}) {
           // A touch of wobble too: a coin landing on its rim tips to one side.
           planar(c, false);                      // out of the slot: free again
           if (board && c.exit === null) { c.exit = exitOf(t.x, c.wheel); f.exits[c.exit]++; }
+          if (c.machine) { c.machine = false; refillCoins.delete(c); }
           const v = c.body.linvel(), w = c.body.angvel();
           c.body.setLinvel({ x: v.x, y: v.y, z: v.z + 6 }, true);
           c.body.setAngvel({ x: w.x + 1 + Math.random(), y: w.y, z: w.z + (Math.random() - 0.5) * 4 }, true);
@@ -1320,7 +1340,7 @@ export function snapshot(f, paid = 0, stepMs = 0) {
     pushers: f.pushers.map(p => p.z),
     guards: f.guards.map(g => f.guardAt(g)),
     stats: { won: f.won, lost: f.lost, moving: f.moving, frozen: f.frozen, rescues: f.rescues, coins: n, stepMs,
-             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing, towersComing: f.starComing },
+             wheels: f.wheels.slice(), ballsIn: f.ballsIn, supplyLeft: f.supplyLeft(), pushing: f.superPushing, towersComing: f.starComing, refilling: f.refilling },
     paid,
   };
   return [msg, [slots.buffer, xf.buffer, frozen.buffer, towers.buffer, balls.buffer]];
