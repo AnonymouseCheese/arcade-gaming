@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=35';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=35';
+import { CFG } from './config.js?v=36';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=36';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -32,7 +32,8 @@ const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s b
 // while its coins drop off (s), sweeps out to full reach and back (cm/s), the
 // stacks rise out of the floor (s, then s to settle), and it pushes slowly out
 // (cm/s) - slowly enough that no stack falls on that first push.
-const STAR_BACK = 4, STAR_DROP = 0.8, STAR_SWEEP = 6, STAR_RISE = 2, STAR_SETTLE = 0.6, STAR_OUT = 1.5;
+const STAR_BACK = 2.5, STAR_DROP = 0.8, STAR_SWEEP = 4, STAR_RISE = 4, STAR_SETTLE = 1, STAR_OUT = 1;
+const STAR_GAP = 0.25;                   // cm between neighbouring stacks: a tight block
 // A pusher scraped bare (Super Push, star towers) is given coins again the
 // moment it starts back out of its wall: the centre one through the coin
 // dropper at the top, an upper one from the coin supply over it. The machine's.
@@ -577,15 +578,15 @@ export function createField(RAPIER, M, opts = {}) {
       p.z = Math.max(p.home, p.z - (S.stage === 'back' ? STAR_BACK : STAR_SWEEP) * dt);
       if (p.z === p.home) {
         if (S.stage === 'back') { S.stage = 'drop'; S.t = 0; return; }
-        // the floor it moves over is clear: the stacks rise out of it, in a
-        // block cols across, rows deep, from just in front of its face
+        // the floor it moves over is clear: the stacks rise out of it, packed
+        // close in a block cols across and rows deep, across the middle of the
+        // lane, from just in front of its face
         const { cols, rows, n } = S.opts;
-        const lo = p.x0 + CFG.coinR + 0.6, hi = p.x1 - CFG.coinR - 0.6;
-        const pitch = cols > 1 ? (hi - lo) / (cols - 1) : CFG.coinR * 3;
+        const pitch = CFG.coinR * 2 + STAR_GAP, x0 = (p.x0 + p.x1) / 2 - pitch * (cols - 1) / 2;
         const z0 = p.front + p.home + CFG.coinR + 0.8;
         S.towers = [];
         for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) S.towers.push(f.tower(n, cols > 1 ? lo + pitch * c : (lo + hi) / 2, z0 + pitch * r, null, true));
+          for (let c = 0; c < cols; c++) S.towers.push(f.tower(n, x0 + pitch * c, z0 + pitch * r, null, true));
         }
         S.stage = 'rise'; S.t = 0;
       }
