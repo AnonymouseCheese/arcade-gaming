@@ -64,15 +64,15 @@
 
 <script type="module">
 import * as THREE from './vendor/three.module.js';
-import { loadRapier, simd } from './engine.js?v=38';
-import { CFG } from './config.js?v=38';
-import { machineFromLayout } from './machine.js?v=38';
-import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=38';
-import { createAudio } from './audio.js?v=38';
-import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=38';
-import { createSteady } from './steady.js?v=38';
-import { createScreen } from './screen.js?v=38';
-import { spinOnce, describe, STAR_FULL } from './spin.js?v=38';
+import { loadRapier, simd } from './engine.js?v=39';
+import { CFG } from './config.js?v=39';
+import { machineFromLayout } from './machine.js?v=39';
+import { createField, snapshot, BALL_RADIUS } from './field-physics.js?v=39';
+import { createAudio } from './audio.js?v=39';
+import { createWheels, paintWheel, SPECIAL } from './wheels.js?v=39';
+import { createSteady } from './steady.js?v=39';
+import { createScreen } from './screen.js?v=39';
+import { spinOnce, describe, STAR_FULL } from './spin.js?v=39';
 
 /* ==================================================================== *
  *  A playtest of the new field.
@@ -443,6 +443,11 @@ function payPrize(prize, mult) {
   else if (prize.kind === 'star') addStar(prize.full ? Math.max(0, STAR_FULL - starPower) : prize.n * mult);
 }
 
+// The jackpot (JP) box: the red wheel's special adds coins to it. Nothing wins
+// it yet - the jackpot challenge comes later; for now it shows on the stats line.
+let jackpot = 0;
+const JP_PER_SPECIAL = 10;
+
 // The wheels' lights: each coin through a wheel moves its light on a slice;
 // stopping on a prize wins it. Coin prizes: ?prize=N coins from each supply.
 const PRIZE_COINS = Number.isFinite(+q.get('prize')) && q.get('prize') !== null ? +q.get('prize') : 5;
@@ -461,6 +466,7 @@ function say(text) {
 const wheels = createWheels((i, kind) => {
   if (kind === 'coins') { sim.supply(PRIZE_COINS); say(`${WHEEL_NAME[i]} wheel: ${PRIZE_COINS * 2} coins!`); }
   else if (SPECIAL[i] === 'star') { addStar(1); say(`${WHEEL_NAME[i]} wheel: +1 star power!`); }
+  else if (SPECIAL[i] === 'jp') { jackpot += JP_PER_SPECIAL; say(`${WHEEL_NAME[i]} wheel: +${JP_PER_SPECIAL} to the jackpot!`); }
   else { sim.ball(); say(`${WHEEL_NAME[i]} wheel: balls!`); }
   if (wheelLook[i]) wheelLook[i].glow = 1;
 }, () => {
@@ -781,7 +787,7 @@ function drawCoins(a) {
 
 let sim;
 if (USE_WORKER) {
-  const worker = new Worker('./physics-worker.js?v=38', { type: 'module' });
+  const worker = new Worker('./physics-worker.js?v=39', { type: 'module' });
   worker.onmessage = e => { if (e.data.type === 'state') onState(e.data); };
   worker.onerror = e => { document.getElementById('perf').textContent = 'physics thread failed: ' + (e.message || e); };
   worker.postMessage({ type: 'init', layout, pile, opts: SIM_OPTS });
@@ -991,7 +997,7 @@ function report() {
   perf.textContent =
     `${fps.toFixed(0)} fps   physics ${S.stepMs.toFixed(1)} ms a step at ${HZ}/s, ${USE_WORKER ? 'own thread' : 'on the page'}, ${simd ? 'fast engine' : 'plain engine'}\n` +
     `${S.coins} coins: ${S.moving} moving, ${S.frozen} frozen\n` +
-    `lost ${S.lost}   put back ${S.rescues}` + (towerLooks.size ? `   star towers ${towerLooks.size}` : '');
+    `lost ${S.lost}   put back ${S.rescues}   jackpot ${jackpot}` + (towerLooks.size ? `   star towers ${towerLooks.size}` : '');
   document.title = `Field Playtest - ${S.coins} coins, ${S.stepMs.toFixed(1)} ms`;
 }
 

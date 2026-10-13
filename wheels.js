@@ -9,14 +9,14 @@
  *  A coin through a wheel also lights it. With all three lit, there is a
  *  bigger prize, and the lights go out again.
  *
- *  The yellow wheel's special prize is a bar of star power; the red and
- *  green wheels' is balls (one out of every ball outlet), for now. Coins
- *  are a shower from the coin supplies.
+ *  The special prizes: red adds coins to the jackpot (JP) box, yellow a bar
+ *  of star power, green balls (one out of every ball outlet). Coins are a
+ *  shower from the coin supplies.
  * ------------------------------------------------------------------ */
 
 export const SLICES = ['special', null, 'coins', null, 'coins', null];
 /** Each wheel's special prize: red, yellow, green. */
-export const SPECIAL = ['ball', 'star', 'ball'];
+export const SPECIAL = ['jp', 'star', 'ball'];
 
 /** A five-pointed star's outline, centred on x, y, its points r out. */
 export function starPath(ctx, x, y, r, inner = 0.45) {
@@ -80,7 +80,16 @@ export function paintWheel(ctx, size, hex, lit, glow = 0, lampOn = false, specia
     const ix = c + Math.cos(mid) * r * 0.64, iy = c + Math.sin(mid) * r * 0.64, u = size / 15;
     ctx.save();
     ctx.translate(ix, iy);
-    if (SLICES[s] === 'special' && special === 'star') {
+    if (SLICES[s] === 'special' && special === 'jp') {
+      // a gold coin marked JP
+      ctx.save(); ctx.rotate(mid + Math.PI / 2);
+      ctx.beginPath(); ctx.arc(0, 0, u * 1.3, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffd23d'; ctx.fill();
+      ctx.strokeStyle = '#8a4b00'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#7a2a00'; ctx.font = `900 ${Math.round(u * 1.25)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('JP', 0, u * 0.05);
+      ctx.restore();
+    } else if (SLICES[s] === 'special' && special === 'star') {
       ctx.save(); ctx.rotate(mid + Math.PI / 2);
       starPath(ctx, 0, 0, u * 1.5);
       ctx.fillStyle = '#fff4a8'; ctx.fill();
