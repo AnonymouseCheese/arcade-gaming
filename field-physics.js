@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=41';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=41';
+import { CFG } from './config.js?v=42';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=42';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -39,14 +39,13 @@ const SUPER_BACK = STAR_BACK, SUPER_WAIT = STAR_DROP, SUPER_OUT = STAR_OUT;
 // A pusher scraped bare (Super Push, star towers) is given coins again once it
 // is back to its usual stroke: the centre one through the coin dropper at the
 // top, an upper one from the coin supply over it. The machine's.
-const REFILL_CENTRE = 30, REFILL_SIDE = 40;
-// The centre refill comes through the coin dropper a coin at a time, this many
-// s apart - about two in the board at once (a tenth of a second apart, as fast
-// as the outlet goes, jammed the board; 0.4 s still bunched them up).
-// Its coins are the machine's: they light no wheel, and while it is under way
-// the player cannot drop coins in. One in the box longer than REFILL_STUCK s
-// no longer holds the player up.
-const REFILL_GAP = 0.6, REFILL_STUCK = 8;
+const REFILL_CENTRE = 40, REFILL_SIDE = 40;
+// The centre refill comes through the coin dropper a coin at a time, as fast
+// as the coin supplies shoot theirs (owner) - shot.gap apart. Its coins are
+// the machine's: they light no wheel, and while it is under way the player
+// cannot drop coins in. One in the box longer than REFILL_STUCK s no longer
+// holds the player up.
+const REFILL_STUCK = 8;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
 /* Coins are a flat square to the solver - far cheaper than a round disc,
@@ -1084,7 +1083,7 @@ export function createField(RAPIER, M, opts = {}) {
       if (slot.length && slotClear()) lastIn = f.release(slot.shift().onWake);
       else if (refillLeft && f.elapsed >= refillNext && slotClear()) {
         const c = f.release();
-        if (c) { c.machine = true; c.machineAt = f.elapsed; refillCoins.add(c); lastIn = c; refillLeft--; refillNext = f.elapsed + REFILL_GAP; }
+        if (c) { c.machine = true; c.machineAt = f.elapsed; refillCoins.add(c); lastIn = c; refillLeft--; refillNext = f.elapsed + shot.gap; }
       }
 
       // thaw whatever each pusher's face is about to reach
