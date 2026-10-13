@@ -1,5 +1,5 @@
-import { CFG } from './config.js?v=36';   // keep the ?v in step with app.js
-import { coinCollider } from './physics.js?v=36';
+import { CFG } from './config.js?v=37';   // keep the ?v in step with app.js
+import { coinCollider } from './physics.js?v=37';
 
 /* ------------------------------------------------------------------ *
  *  The new field's physics, built from the block layout (machine.js).
@@ -27,16 +27,18 @@ import { coinCollider } from './physics.js?v=36';
 
 const CHUTE_SIDE = +(globalThis.BOARD_SIDE ?? 70);   // cm/s - the fastest a coin may go sideways in the box
 const CHUTE_SPEED = 45;   // cm/s - the fastest a coin may fall inside the drop box
-const SUPER_BACK = 8, SUPER_WAIT = 0.8, SUPER_OUT = 2.5;   // Super Push: cm/s back into the wall, s waiting there, cm/s back out
 // The star towers: the centre pusher backs slowly into its wall (cm/s), waits
 // while its coins drop off (s), sweeps out to full reach and back (cm/s), the
 // stacks rise out of the floor (s, then s to settle), and it pushes slowly out
 // (cm/s) - slowly enough that no stack falls on that first push.
 const STAR_BACK = 2.5, STAR_DROP = 0.8, STAR_SWEEP = 4, STAR_RISE = 4, STAR_SETTLE = 1, STAR_OUT = 1;
 const STAR_GAP = 0.25;                   // cm between neighbouring stacks: a tight block
-// A pusher scraped bare (Super Push, star towers) is given coins again the
-// moment it starts back out of its wall: the centre one through the coin
-// dropper at the top, an upper one from the coin supply over it. The machine's.
+// Super Push moves as the star towers' pusher does (owner): cm/s back into the
+// wall, s waiting there, cm/s back out
+const SUPER_BACK = STAR_BACK, SUPER_WAIT = STAR_DROP, SUPER_OUT = STAR_OUT;
+// A pusher scraped bare (Super Push, star towers) is given coins again once it
+// is back to its usual stroke: the centre one through the coin dropper at the
+// top, an upper one from the coin supply over it. The machine's.
 const REFILL_CENTRE = 30, REFILL_SIDE = 20;
 const PUSHER_GRIP = 0.45;   // friction of a pusher's surfaces (decks are 0.8)
 const CCD_FALL = 60;      // cm/s - falling faster than this, a coin gets full collision checks
@@ -596,7 +598,7 @@ export function createField(RAPIER, M, opts = {}) {
       p.z = Math.min(p.stroke, p.z + STAR_SWEEP * dt);
       if (p.z === p.stroke) S.stage = 'back2';
     } else if (S.stage === 'rise') {                         // the stacks come up
-      if ((S.t += dt) >= STAR_RISE + STAR_SETTLE) { S.stage = 'out'; refill(p); }
+      if ((S.t += dt) >= STAR_RISE + STAR_SETTLE) S.stage = 'out';
     } else {                                                 // slowly out, shoving them into the field
       p.z = Math.min(p.stroke, p.z + STAR_OUT * dt);
       if (p.z === p.stroke) {
@@ -604,6 +606,7 @@ export function createField(RAPIER, M, opts = {}) {
         for (const T of S.towers) if (towers.includes(T) && !T.free) { T.free = true; T.body.lockRotations(false, true); }
         for (const q of pushers) q.script = null;              // the side pushers carry on from where they stopped
         p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
+        refill(p);
         if (pushLater) { const k = pushLater; pushLater = 0; f.superPush(k); }
       }
     }
@@ -946,11 +949,11 @@ export function createField(RAPIER, M, opts = {}) {
           // stopped where it is while the star towers come out: its clock stops too
         } else if (S.kind === 'star') {
           stepStar(p, S, dt);
-        } else if (S.stage === 'back') {                       // quickly back into the wall
+        } else if (S.stage === 'back') {                       // slowly back into the wall
           p.z = Math.max(p.home, p.z - SUPER_BACK * dt);
           if (p.z === p.home) { S.stage = 'wait'; S.t = 0; }
         } else if (S.stage === 'wait') {                       // the coins drop off
-          if ((S.t += dt) >= SUPER_WAIT) { S.stage = 'out'; refill(p); }
+          if ((S.t += dt) >= SUPER_WAIT) S.stage = 'out';
         } else {                                               // slowly out to its full reach
           p.z = Math.min(p.stroke, p.z + SUPER_OUT * dt);
           if (p.z === p.stroke) {
@@ -959,6 +962,7 @@ export function createField(RAPIER, M, opts = {}) {
               // back to its stroke, at the far end of it - where it is now
               p.script = null;
               p.clock = (((Math.PI - p.phase) / (Math.PI * 2)) % 1 + 1) % 1 * period;
+              refill(p);
             }
           }
         }
